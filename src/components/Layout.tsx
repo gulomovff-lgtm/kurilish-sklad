@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect, useRef } from 'react';
+import { ReactNode, useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, Package, Users, LogOut,
@@ -6,7 +6,9 @@ import {
   BarChart3, ShoppingCart, Settings, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLang } from '../contexts/LangContext';
 import { ROLE_LABELS, needsMyAction } from '../utils';
+import type { Translations } from '../i18n';
 import toast from 'react-hot-toast';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -21,35 +23,38 @@ type NavItem = {
 };
 type NavGroup = { label: string; items: NavItem[] };
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: 'Рабочее пространство',
-    items: [
-      { to: '/',                label: 'Дашборд',   icon: LayoutDashboard, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
-      { to: '/requests',        label: 'Заявки',    icon: FileText,        roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'], badge: true },
-      { to: '/warehouse',       label: 'Склад',     icon: Package,         roles: ['sklad','admin','nachalnik','snab'] },
-      { to: '/purchase-orders', label: 'Закупки',   icon: ShoppingCart,    roles: ['snab','admin','nachalnik'] },
-      { to: '/analytics',       label: 'Аналитика', icon: BarChart3,       roles: ['nachalnik','finansist','snab','admin'] },
-    ],
-  },
-  {
-    label: 'Справочники',
-    items: [
-      { to: '/objects', label: 'Объекты', icon: HardHat, roles: ['admin','nachalnik','prоrab'] },
-      { to: '/help',    label: 'Инструкция', icon: BookOpen, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
-    ],
-  },
-  {
-    label: 'Администрирование',
-    items: [
-      { to: '/users',    label: 'Пользователи', icon: Users, roles: ['admin'] },
-      { to: '/telegram', label: 'Telegram-бот', icon: Bot,   roles: ['admin'] },
-    ],
-  },
-];
+function buildNavGroups(t: Translations): NavGroup[] {
+  return [
+    {
+      label: t.nav_group_workspace,
+      items: [
+        { to: '/',                label: t.nav_dashboard,  icon: LayoutDashboard, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
+        { to: '/requests',        label: t.nav_requests,   icon: FileText,        roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'], badge: true },
+        { to: '/warehouse',       label: t.nav_warehouse,  icon: Package,         roles: ['sklad','admin','nachalnik','snab'] },
+        { to: '/purchase-orders', label: t.nav_purchases,  icon: ShoppingCart,    roles: ['snab','admin','nachalnik'] },
+        { to: '/analytics',       label: t.nav_analytics,  icon: BarChart3,       roles: ['nachalnik','finansist','snab','admin'] },
+      ],
+    },
+    {
+      label: t.nav_group_refs,
+      items: [
+        { to: '/objects', label: t.nav_objects, icon: HardHat, roles: ['admin','nachalnik','prоrab'] },
+        { to: '/help',    label: t.nav_help,    icon: BookOpen, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
+      ],
+    },
+    {
+      label: t.nav_group_admin,
+      items: [
+        { to: '/users',    label: t.nav_users,    icon: Users, roles: ['admin'] },
+        { to: '/telegram', label: t.nav_telegram, icon: Bot,   roles: ['admin'] },
+      ],
+    },
+  ];
+}
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { currentUser, logout } = useAuth();
+  const { lang, t, toggleLang }  = useLang();
   const location  = useLocation();
   const navigate  = useNavigate();
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
@@ -57,6 +62,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [showProfile,  setShowProfile]  = useState(false);
   const [actionCount,  setActionCount]  = useState(0);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  const navGroups = useMemo(() => buildNavGroups(t), [t]);
 
   // ── Счётчик заявок, требующих действия ──────────────────────────────────
   useEffect(() => {
@@ -84,7 +91,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const handleLogout = async () => {
     setShowProfile(false);
     await logout();
-    toast.success('Вы вышли из системы');
+    toast.success(lang === 'ru' ? 'Вы вышли из системы' : 'Tizimdan chiqdingiz');
     navigate('/login');
   };
 
@@ -128,7 +135,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         {/* ── Navigation groups ── */}
         <nav className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0">
-          {NAV_GROUPS.map(group => {
+          {navGroups.map(group => {
             const items = group.items.filter(it => currentUser && it.roles.includes(currentUser.role));
             if (!items.length) return null;
             return (
@@ -177,6 +184,27 @@ export default function Layout({ children }: { children: ReactNode }) {
           })}
         </nav>
 
+        {/* ── Language switcher ── */}
+        <div className="shrink-0 px-2 pb-1">
+          <button
+            onClick={toggleLang}
+            title={lang === 'ru' ? "O'zbekcha" : 'Русский'}
+            className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 w-full transition-all ${
+              isIcon ? 'justify-center' : ''
+            }`}
+            style={{ background: '#3d1c0e', color: '#e8cfc5' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#5c2e1a'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#3d1c0e'; }}
+          >
+            <span className="text-base leading-none">{lang === 'ru' ? '🇺🇿' : '🇷🇺'}</span>
+            {!isIcon && (
+              <span className="text-[11px] font-semibold">
+                {lang === 'ru' ? "O'zbekcha" : 'Русский'}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* ── Profile card ── */}
         <div
           ref={profileRef}
@@ -201,7 +229,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left opacity-30 cursor-not-allowed"
                 style={{ color: '#e8cfc5' }}
               >
-                <Settings className="w-3.5 h-3.5" /> Настройки профиля
+                <Settings className="w-3.5 h-3.5" /> {t.profile_settings}
               </button>
               <button
                 onClick={handleLogout}
@@ -210,7 +238,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#7a1e1e'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
-                <LogOut className="w-3.5 h-3.5" /> Выйти
+                <LogOut className="w-3.5 h-3.5" /> {t.logout}
               </button>
             </div>
           )}

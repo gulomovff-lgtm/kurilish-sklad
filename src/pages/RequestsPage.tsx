@@ -12,12 +12,13 @@ import {
   ChevronRight, Zap, GitBranch, CheckCircle2, XCircle,
 } from 'lucide-react';
 import {
-  formatDate, formatDateShort, STATUS_LABELS, STATUS_COLORS,
-  REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
-  URGENCY_LABELS, URGENCY_COLORS, URGENCY_BADGE,
-  CHAIN_LABELS, needsMyAction, getNextStatuses, getChainSteps,
+  formatDate, formatDateShort, STATUS_COLORS,
+  REQUEST_TYPE_ICONS,
+  URGENCY_COLORS, URGENCY_BADGE,
+  needsMyAction, getNextStatuses, getChainSteps,
   MATERIAL_TAGS, SLA_HOURS,
 } from '../utils';
+import { useLabels } from '../hooks/useLabels';
 import toast from 'react-hot-toast';
 import CreatePurchaseOrderModal from '../components/CreatePurchaseOrderModal';
 import { checkPermission } from '../rbac';
@@ -183,6 +184,7 @@ function KanbanCard({
   const [showActions, setShowActions] = useState(false);
   const [showChain, setShowChain] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const { STATUS_LABELS } = useLabels();
 
   const isUrgent   = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
   const isCritical = req.urgencyLevel === 'critical';
@@ -695,6 +697,7 @@ type QuickFilter = 'all' | 'mine' | 'need_action' | 'urgent' | 'open' | 'done';
 export default function RequestsPage() {
   const { currentUser } = useAuth();
   const { canViewFinancial } = usePermission();
+  const { STATUS_LABELS, CHAIN_LABELS, TYPE_LABELS, URGENCY_LABELS } = useLabels();
   const location = useLocation();
   const [requests, setRequests] = useState<SkladRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -826,7 +829,7 @@ export default function RequestsPage() {
       `"${r.title.replace(/"/g,'""')}"`,
       `"${r.objectName.replace(/"/g,'""')}"`,
       `"${r.createdByName.replace(/"/g,'""')}"`,
-      REQUEST_TYPE_LABELS[r.requestType ?? 'other'],
+      REQUEST_TYPE_ICONS[r.requestType ?? 'other'], TYPE_LABELS[r.requestType ?? 'other'],
       STATUS_LABELS[r.status],
       URGENCY_LABELS[r.urgencyLevel ?? 'normal'],
       r.createdAt.slice(0,10),
@@ -1038,8 +1041,8 @@ export default function RequestsPage() {
               <select value={filterType} onChange={e => setFilterType(e.target.value as RequestType | 'all')}
                 className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="all">Все типы</option>
-                {(Object.keys(REQUEST_TYPE_LABELS) as RequestType[]).map(t => (
-                  <option key={t} value={t}>{REQUEST_TYPE_ICONS[t]} {REQUEST_TYPE_LABELS[t]}</option>
+                {(Object.keys(TYPE_LABELS) as RequestType[]).map(typeKey => (
+                  <option key={typeKey} value={typeKey}>{REQUEST_TYPE_ICONS[typeKey]} {TYPE_LABELS[typeKey]}</option>
                 ))}
               </select>
             </div>

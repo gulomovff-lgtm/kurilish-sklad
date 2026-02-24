@@ -13,12 +13,12 @@ import {
   Store, Trophy, Scissors, Truck, ThumbsUp, ArrowLeftRight,
 } from 'lucide-react';
 import {
-  formatDate, formatDateShort, STATUS_LABELS, STATUS_COLORS,
+  formatDate, formatDateShort, STATUS_COLORS,
   getNextStatuses, getStatusProgress, getChainSteps,
-  REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
-  URGENCY_LABELS, URGENCY_COLORS, URGENCY_BADGE,
-  CHAIN_LABELS,
+  REQUEST_TYPE_ICONS,
+  URGENCY_COLORS, URGENCY_BADGE,
 } from '../utils';
+import { useLabels } from '../hooks/useLabels';
 import { sendRequestNotification } from '../services/telegram';
 import SplitRequestModal from '../components/SplitRequestModal';
 import { usePermission } from '../hooks/usePermission';
@@ -42,6 +42,7 @@ export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { currentUser } = useAuth();
   const { canViewFinancial } = usePermission();
+  const { STATUS_LABELS, CHAIN_LABELS, TYPE_LABELS, URGENCY_LABELS } = useLabels();
   const navigate = useNavigate();
 
   const [request, setRequest] = useState<SkladRequest | null>(null);
@@ -395,7 +396,7 @@ export default function RequestDetailPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-3">
           <h3 className="font-semibold text-gray-700">Информация о заявке</h3>
           <InfoRow icon={User} label="Прораб" value={request.createdByName} />
-          <InfoRow icon={Hash} label="Тип" value={`${REQUEST_TYPE_ICONS[request.requestType ?? 'other']} ${REQUEST_TYPE_LABELS[request.requestType ?? 'other']}`} />
+          <InfoRow icon={Hash} label="Тип" value={`${REQUEST_TYPE_ICONS[request.requestType ?? 'other']} ${TYPE_LABELS[request.requestType ?? 'other']}`} />
           {request.urgencyLevel && (
             <InfoRow icon={AlertTriangle} label="Срочность" value={URGENCY_LABELS[request.urgencyLevel]} />
           )}
@@ -724,6 +725,7 @@ function ChainTimeline({ request }: { request: SkladRequest }) {
   const isDone = request.status === 'polucheno';
   const progress = getStatusProgress(request.status);
   const { canViewFinancial } = usePermission();
+  const { STATUS_LABELS, CHAIN_LABELS } = useLabels();
 
   // SLA норма на каждый этап (часы)
   const SLA_HOURS: Partial<Record<RequestStatus, number>> = {

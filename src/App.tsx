@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LangProvider } from './contexts/LangContext';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
@@ -80,10 +81,12 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        <AppRoutes />
-      </AuthProvider>
+      <LangProvider>
+        <AuthProvider>
+          <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+          <AppRoutes />
+        </AuthProvider>
+      </LangProvider>
     </BrowserRouter>
   );
 }

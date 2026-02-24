@@ -31,6 +31,7 @@ export interface AppUser {
   createdBy?: string;
   phone?: string;        // Телефон для связи
   objectIds?: string[];  // К каким объектам прикреплён
+  telegramId?: string;   // Telegram user ID (для авторизации в боте)
 }
 
 // История изменений заявки
@@ -138,6 +139,9 @@ export interface SkladRequest {
   prorabConfirmedAt?: string;     // ISO — когда прораб нажал «Подтвердить приёмку»
   prorabConfirmedBy?: string;     // UID прораба
   prorabConfirmedByName?: string; // Имя прораба
+
+  // ── Сводный заказ поставщику (Consolidated Purchase Order) ─────────
+  purchaseOrderId?: string;       // ID сводного заказа из /purchase_orders
 }
 
 export interface StockItem {
@@ -229,6 +233,37 @@ export interface TelegramChatConfig {
   isActive: boolean;
   objectFilter?: string[]; // [] или undefined = все объекты; [...objectIds] = только эти
   mentionTag?: string;     // Telegram @username для упоминания в сообщениях (без @)
+}
+
+// ===== PURCHASE ORDERS (Сводные закупочные заказы) =====
+
+export type PurchaseOrderStatus = 'draft' | 'pending' | 'delivered' | 'cancelled';
+
+export interface PurchaseOrderItem {
+  name: string;
+  unit: string;
+  totalQty: number;           // суммарное кол-во из всех заявок
+  requestIds: string[];       // из каких заявок собрано
+}
+
+export interface PurchaseOrder {
+  id: string;
+  number: number;              // авто-инкремент PO-NNN
+  supplierName: string;        // Название поставщика
+  supplierContact?: string;    // Контакт (телефон / ссылка)
+  expectedDelivery?: string;   // Ожидаемая дата доставки (ISO)
+  actualCost?: number;         // Фактическая стоимость
+  status: PurchaseOrderStatus;
+  linkedRequests: string[];    // ID заявок
+  items: PurchaseOrderItem[]; // Сводная таблица позиций
+  attachments?: string[];      // URL накладных/счетов
+  note?: string;               // Примечание снабженца
+  createdAt: string;
+  createdBy: string;
+  createdByName: string;
+  updatedAt: string;
+  deliveredAt?: string;        // Фактическая дата доставки
+  telegramNotified?: boolean;  // Уже оповещали о критических тегах
 }
 
 export interface TelegramSettings {

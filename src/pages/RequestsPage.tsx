@@ -8,7 +8,7 @@ import {
   Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User,
   ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box, LayoutList, LayoutGrid, Download,
   ChevronsLeft, ArrowUpDown, Layers, AlertTriangle, SlidersHorizontal, TableProperties,
-  CalendarDays, DollarSign, Flame, CircleCheck, RotateCcw,
+  CalendarDays, DollarSign, Flame, CircleCheck, RotateCcw, ShoppingCart,
   ChevronRight, Zap, GitBranch, CheckCircle2, XCircle,
 } from 'lucide-react';
 import {
@@ -19,6 +19,7 @@ import {
   MATERIAL_TAGS, SLA_HOURS,
 } from '../utils';
 import toast from 'react-hot-toast';
+import CreatePurchaseOrderModal from '../components/CreatePurchaseOrderModal';
 
 const TYPE_ICONS = { materials: Package, tools: Wrench, equipment: Cpu, services: Briefcase, other: Box };
 const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
@@ -162,6 +163,7 @@ const STATUS_ACTION_STYLE: Partial<Record<RequestStatus, string>> = {
 function KanbanCard({
   req, myAction, search, compact, multi,
   currentUserRole, currentUserUid, currentUserName,
+  selectable, selected, onToggleSelect,
 }: {
   req: SkladRequest;
   myAction: boolean;
@@ -171,6 +173,9 @@ function KanbanCard({
   currentUserRole: string;
   currentUserUid: string;
   currentUserName: string;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }) {
   const [showActions, setShowActions] = useState(false);
   const [showChain, setShowChain] = useState(false);
@@ -247,6 +252,20 @@ function KanbanCard({
       {/* Critical pulse */}
       {isCritical && !isRejected && (
         <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse z-10" />
+      )}
+
+      {/* Чекбокс выбора (для колонки Закупка) */}
+      {selectable && onToggleSelect && (
+        <button
+          onClick={e => { e.preventDefault(); e.stopPropagation(); onToggleSelect(req.id); }}
+          className={`absolute top-2 right-2 z-20 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+            selected
+              ? 'bg-cyan-600 border-cyan-600 text-white'
+              : 'bg-white border-gray-300 hover:border-cyan-400'
+          }`}
+        >
+          {selected && <span className="text-[10px] text-white font-bold">✓</span>}
+        </button>
       )}
 
       {/* Clickable body → detail page */}
@@ -417,7 +436,7 @@ function KanbanCard({
 
 // ─── KanbanBoard ──────────────────────────────────────────────────────────────
 function KanbanBoard({
-  filtered, isNeedAction, search, userRole, currentUserUid, currentUserName,
+  filtered, isNeedAction, search, userRole, currentUserUid, currentUserName, allRequests,
 }: {
   filtered: SkladRequest[];
   isNeedAction: (r: SkladRequest) => boolean;
@@ -425,12 +444,15 @@ function KanbanBoard({
   userRole: string;
   currentUserUid: string;
   currentUserName: string;
+  allRequests: SkladRequest[];
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [compact, setCompact] = useState(false);
   const [groupByObj, setGroupByObj] = useState(false);
   const [sortBy, setSortBy] = useState<'urgency' | 'date' | 'cost' | 'updated'>('urgency');
   const [showDone, setShowDone] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showPOModal, setShowPOModal] = useState(false);
 
   // Summary
   const totalCost = filtered.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
@@ -441,6 +463,16 @@ function KanbanBoard({
   }).length;
 
   const toggleCol = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // Чекбоксы для колонки «Закупка»
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectedRequests = allRequests.filter(r => selectedIds.has(r.id));
 
   // Sorting
   const URGENCY_ORDER: Record<string, number> = { critical: 0, high: 1, normal: 2, low: 3 };
@@ -650,7 +682,10 @@ function KanbanBoard({
                     ) : cards.map(req => (
                       <KanbanCard key={req.id} req={req} myAction={isNeedAction(req)}
                         search={search} compact={compact} multi={col.statuses.length > 1}
-                        currentUserRole={userRole} currentUserUid={currentUserUid} currentUserName={currentUserName} />
+                        currentUserRole={userRole} currentUserUid={currentUserUid} currentUserName={currentUserName}
+                        selectable={col.id === 'supply' && (userRole === 'snab' || userRole === 'admin')}
+                        selected={selectedIds.has(req.id)}
+                        onToggleSelect={toggleSelect} />
                     ))}
                   </div>
 
@@ -726,6 +761,38 @@ function KanbanBoard({
           </div>
         )}
       </div>
+
+      {/* ══ BATCH ACTION BAR ══ */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-4 min-w-[320px]">
+          <div className="flex-1">
+            <span className="text-sm font-bold">Выбрано: {selectedIds.size}</span>
+            <span className="text-xs text-gray-400 ml-2">заявок</span>
+          </div>
+          <button
+            onClick={() => setShowPOModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-500 text-white rounded-xl hover:bg-cyan-400 transition-colors font-semibold text-sm"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            Сформировать сводный заказ
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="p-2 text-gray-400 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ══ CREATE PO MODAL ══ */}
+      {showPOModal && selectedRequests.length > 0 && (
+        <CreatePurchaseOrderModal
+          requests={selectedRequests}
+          onClose={() => setShowPOModal(false)}
+          onDone={() => { setShowPOModal(false); setSelectedIds(new Set()); }}
+        />
+      )}
     </div>
   );
 }
@@ -1043,6 +1110,7 @@ export default function RequestsPage() {
           userRole={currentUser?.role ?? ''}
           currentUserUid={currentUser?.uid ?? ''}
           currentUserName={currentUser?.displayName ?? ''}
+          allRequests={requests}
         />
       )}
 

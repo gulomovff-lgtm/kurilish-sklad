@@ -20,6 +20,7 @@ import {
   CHAIN_LABELS,
 } from '../utils';
 import { sendRequestNotification } from '../services/telegram';
+import SplitRequestModal from '../components/SplitRequestModal';
 import toast from 'react-hot-toast';
 
 const STATUS_TO_TG_EVENT: Partial<Record<RequestStatus, TelegramEvent>> = {
@@ -50,8 +51,7 @@ export default function RequestDetailPage() {
   const [adminStatus, setAdminStatus] = useState<RequestStatus | ''>('');
   const [adminChain, setAdminChain] = useState<RequestChain | ''>('');
   const [showSplitModal, setShowSplitModal] = useState(false);
-  // splitQty: сколько выдать сейчас из склада (остаток идёт в дочернюю закупочную заявку)
-  const [splitQty, setSplitQty] = useState<Record<string, number>>({});
+  // (splitQty удалён — логика перенесена в SplitRequestModal)
 
   useEffect(() => {
     if (!id) return;
@@ -151,117 +151,7 @@ export default function RequestDetailPage() {
   };
 
   // ═══════════════════════════════════════════════════════════════════
-  // СПЛИТ ЗАЯВКИ: выдать часть + создать дочернюю закупочную заявку
-  // ═══════════════════════════════════════════════════════════════════
-  const handleSplit = async (splitNote: string) => {
-    if (!currentUser || !id || !request) return;
-    setActionLoading(true);
-    try {
-      const now = new Date().toISOString();
-
-      // Определяем позиции: что выдаём сейчас и что идёт в закуп
-      const toIssue: RequestItem[] = [];
-      const toPurchase: RequestItem[] = [];
-
-      for (const item of request.items) {
-        const issueNow = splitQty[item.id] ?? 0;
-        const remainder = item.quantity - issueNow;
-        if (issueNow > 0) {
-          toIssue.push({ ...item, issuedQty: issueNow, quantity: item.quantity });
-        }
-        if (remainder > 0) {
-          toPurchase.push({ ...item, quantity: remainder, issuedQty: 0 });
-        }
-      }
-
-      if (toPurchase.length === 0) {
-        // Ничего не нужно закупать — просто выдаём
-        await updateStatus('vydano');
-        setShowSplitModal(false);
-        return;
-      }
-
-      // Если выдаём что-то → списать со склада
-      if (toIssue.length > 0) {
-        await deductStockForIssue(splitQty);
-      }
-
-      // Счётчик для новой заявки
-      const counterSnap = await getDocs(collection(db, 'requests'));
-      const maxNum = counterSnap.docs.reduce((mx, d) => Math.max(mx, (d.data().number ?? 0)), 0);
-
-      const childHistoryEntry = {
-        at: now,
-        by: currentUser.uid,
-        byName: currentUser.displayName,
-        action: `Создана как дочерняя заявка (сплит из #${request.number})`,
-        toStatus: 'nachalnik_review' as RequestStatus,
-      };
-
-      // Дочерняя заявка (Карточка Б — в закуп)
-      const childRef = await addDoc(collection(db, 'requests'), {
-        number: maxNum + 1,
-        title: `[Закупка] ${request.title}`,
-        objectName: request.objectName,
-        objectId: request.objectId,
-        createdBy: request.createdBy,
-        createdByName: request.createdByName,
-        createdAt: now,
-        updatedAt: now,
-        status: 'nachalnik_review' as RequestStatus,
-        chain: request.chain,
-        requestType: request.requestType,
-        urgencyLevel: request.urgencyLevel,
-        priority: request.priority,
-        items: toPurchase,
-        history: [childHistoryEntry],
-        parentId: id,
-        isSplit: true,
-        splitNote: splitNote || `Дочерняя заявка — позиции к закупке из #${request.number}`,
-        zone: request.zone,
-        tags: request.tags,
-        plannedDate: request.plannedDate,
-        slaEnteredAt: now,
-        tgNotified: false,
-      });
-
-      // Обновляем родительскую заявку (Карточка А — выдано со склада)
-      const historyEntry = {
-        at: now,
-        by: currentUser.uid,
-        byName: currentUser.displayName,
-        action: `Частичная выдача: ${toIssue.length} поз. выдано, ${toPurchase.length} поз. → заявка #${maxNum + 1}`,
-        fromStatus: request.status,
-        toStatus: 'vydano' as RequestStatus,
-        comment: splitNote || undefined,
-      };
-
-      await updateDoc(doc(db, 'requests', id), {
-        status: 'vydano',
-        updatedAt: now,
-        slaEnteredAt: now,
-        history: arrayUnion(historyEntry),
-        items: request.items.map(it => ({
-          ...it,
-          issuedQty: splitQty[it.id] ?? 0,
-        })),
-        childIds: arrayUnion(childRef.id),
-        splitNote: splitNote || undefined,
-        skladProcessedBy: currentUser.uid,
-        skladProcessedByName: currentUser.displayName,
-        commentSklad: splitNote || undefined,
-      });
-
-      toast.success(`Сплит выполнен! Создана заявка #${maxNum + 1} на закупку`);
-      setShowSplitModal(false);
-      setComment('');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Ошибка разделения заявки';
-      toast.error(msg);
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  // handleSplit удалён — логика перенесена в <SplitRequestModal />
 
   const updateStatus = async (newStatus: RequestStatus) => {
     if (!currentUser || !id) return;
@@ -413,102 +303,13 @@ export default function RequestDetailPage() {
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-5">
 
-      {/* ══ SPLIT MODAL ══════════════════════════════════════════════════ */}
+      {/* ══ SPLIT MODAL (компонент SplitRequestModal) ═══════════════════ */}
       {showSplitModal && request && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                  <Scissors className="w-5 h-5 text-orange-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Разделить заявку</h2>
-                  <p className="text-sm text-gray-500">Карточка А = выдать сейчас · Карточка Б = дочерняя заявка в закупку</p>
-                </div>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-800">
-                ⚠ Система автоматически спишет выданные позиции со склада и создаст новую заявку для закупки остатка.
-              </div>
-
-              <div className="space-y-2 mb-4">
-                <div className="grid grid-cols-[1fr_120px_120px] text-xs font-medium text-gray-500 px-2">
-                  <span>Наименование</span>
-                  <span className="text-center">Всего</span>
-                  <span className="text-center">Выдать сейчас</span>
-                </div>
-                {request.items.map(item => {
-                  const toGive = splitQty[item.id] ?? item.quantity;
-                  const toPurchase = Math.max(0, item.quantity - toGive);
-                  return (
-                    <div key={item.id} className="grid grid-cols-[1fr_120px_120px] items-center gap-2 p-2 bg-gray-50 rounded-xl">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                        {toPurchase > 0 && (
-                          <p className="text-xs text-orange-600 mt-0.5">→ В закупку: {toPurchase} {item.unit}</p>
-                        )}
-                      </div>
-                      <div className="text-center text-sm text-gray-500">{item.quantity} {item.unit}</div>
-                      <div>
-                        <input
-                          type="number" min={0} max={item.quantity} step={0.01}
-                          value={toGive}
-                          onChange={e => setSplitQty(prev => ({
-                            ...prev,
-                            [item.id]: Math.min(item.quantity, Math.max(0, parseFloat(e.target.value) || 0))
-                          }))}
-                          className="w-full px-2 py-1 border border-gray-300 rounded-lg text-right text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Превью разделения */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-lime-50 border border-lime-200 rounded-xl p-3">
-                  <p className="text-xs font-semibold text-lime-700 mb-1">✅ Карточка А — Выдать со склада</p>
-                  {request.items.filter(it => (splitQty[it.id] ?? it.quantity) > 0).map(it => (
-                    <p key={it.id} className="text-xs text-gray-700">{it.name}: {splitQty[it.id] ?? it.quantity} {it.unit}</p>
-                  ))}
-                </div>
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-3">
-                  <p className="text-xs font-semibold text-orange-700 mb-1">📦 Карточка Б — В закупку</p>
-                  {request.items.filter(it => it.quantity - (splitQty[it.id] ?? it.quantity) > 0).map(it => (
-                    <p key={it.id} className="text-xs text-gray-700">{it.name}: {it.quantity - (splitQty[it.id] ?? it.quantity)} {it.unit}</p>
-                  ))}
-                  {request.items.every(it => it.quantity - (splitQty[it.id] ?? it.quantity) <= 0) && (
-                    <p className="text-xs text-gray-400 italic">Нет позиций — всё будет выдано</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Комментарий к разделению</label>
-                <input type="text" value={comment} onChange={e => setComment(e.target.value)}
-                  placeholder="Причина частичной выдачи..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-              </div>
-
-              <div className="flex gap-3">
-                <button onClick={() => setShowSplitModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 transition-colors font-medium text-sm">
-                  Отмена
-                </button>
-                <button onClick={() => handleSplit(comment)} disabled={actionLoading}
-                  className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
-                  {actionLoading
-                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    : <Scissors className="w-4 h-4" />
-                  }
-                  Разделить и выдать
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SplitRequestModal
+          request={request}
+          onClose={() => setShowSplitModal(false)}
+          onDone={() => setShowSplitModal(false)}
+        />
       )}
 
       {/* ══ БАННЕР: Ожидает подтверждения прораба ══════════════════════ */}
@@ -830,10 +631,6 @@ export default function RequestDetailPage() {
                 <button key={status}
                   onClick={() => {
                     if (cfg.openSplit) {
-                      // Инициализируем splitQty текущими количествами
-                      const init: Record<string, number> = {};
-                      request.items.forEach(it => { init[it.id] = it.issuedQty ?? it.quantity; });
-                      setSplitQty(init);
                       setShowSplitModal(true);
                     } else {
                       updateStatus(status);

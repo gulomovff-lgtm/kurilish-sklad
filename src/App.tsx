@@ -15,6 +15,7 @@ import ObjectsPage from './pages/ObjectsPage';
 import TelegramSettingsPage from './pages/TelegramSettingsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
+import HelpPage from './pages/HelpPage';
 import { checkAndNotifySlaBreaches } from './services/telegram';
 
 const SLA_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 минут
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
         <Route path="/objects" element={<ObjectsPage />} />
+        <Route path="/help" element={<HelpPage />} />
         {currentUser.role === 'admin' && (
           <Route path="/users" element={<UsersPage />} />
         )}

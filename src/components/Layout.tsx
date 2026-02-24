@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, Package, Users, LogOut,
   Menu, X, ChevronLeft, ChevronRight, Shield, Bot, HardHat,
-  BarChart3, ShoppingCart, Settings,
+  BarChart3, ShoppingCart, Settings, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_LABELS, needsMyAction } from '../utils';
@@ -36,6 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Справочники',
     items: [
       { to: '/objects', label: 'Объекты', icon: HardHat, roles: ['admin','nachalnik','prоrab'] },
+      { to: '/help',    label: 'Инструкция', icon: BookOpen, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
     ],
   },
   {

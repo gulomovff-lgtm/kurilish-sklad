@@ -1,14 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { SkladRequest, RequestStatus, RequestType, UrgencyLevel } from '../types';
-import { Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User, ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box, LayoutList, LayoutGrid, Download } from 'lucide-react';
+import {
+  Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User,
+  ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box, LayoutList, LayoutGrid, Download,
+  ChevronsLeft, ArrowUpDown, Layers, AlertTriangle, SlidersHorizontal, TableProperties,
+  CalendarDays, DollarSign, Flame, CircleCheck, RotateCcw,
+} from 'lucide-react';
 import {
   formatDate, formatDateShort, STATUS_LABELS, STATUS_COLORS,
   REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
-  URGENCY_LABELS, URGENCY_COLORS,
+  URGENCY_LABELS, URGENCY_COLORS, URGENCY_BADGE,
   CHAIN_LABELS, needsMyAction,
 } from '../utils';
 
@@ -21,11 +26,480 @@ const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
   other:      { bg: 'bg-gray-100',  icon: 'text-gray-500' },
 };
 
+const URGENCY_COLOR_HEX: Record<string, string> = {
+  critical: '#ef4444',
+  high:     '#f97316',
+  normal:   '#3b82f6',
+  low:      '#d1d5db',
+};
+
 const ALL_STATUSES: RequestStatus[] = [
   'novaya','sklad_review','sklad_partial','nachalnik_review',
   'nachalnik_approved','finansist_review','finansist_approved',
   'snab_process','zakupleno','vydano','otkloneno',
 ];
+
+const KANBAN_COLUMNS = [
+  { id: 'novaya',   label: 'Новые',        icon: '🆕', statuses: ['novaya'] as RequestStatus[],                                                                      color: '#3b82f6', bg: '#eff6ff',  wipLimit: 10 },
+  { id: 'sklad',    label: 'У склада',     icon: '📦', statuses: ['sklad_review','sklad_partial'] as RequestStatus[],                                                 color: '#f59e0b', bg: '#fffbeb',  wipLimit: 8  },
+  { id: 'approval', label: 'Согласование', icon: '✅', statuses: ['nachalnik_review','nachalnik_approved','finansist_review','finansist_approved'] as RequestStatus[], color: '#8b5cf6', bg: '#f5f3ff',  wipLimit: 12 },
+  { id: 'supply',   label: 'Закупка',      icon: '🛒', statuses: ['snab_process','zakupleno'] as RequestStatus[],                                                     color: '#06b6d4', bg: '#ecfeff',  wipLimit: 15 },
+  { id: 'done',     label: 'Завершено',    icon: '🏁', statuses: ['vydano','otkloneno'] as RequestStatus[],                                                           color: '#22c55e', bg: '#f0fdf4',  wipLimit: 999 },
+];
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+function daysSince(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+}
+function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
+function highlightText(text: string, q: string): React.ReactNode {
+  if (!q) return text;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return text;
+  return <>{text.slice(0, idx)}<mark className="bg-yellow-200 text-gray-900 rounded px-0.5">{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</>;
+}
+function formatK(n: number): string {
+  if (n >= 1_000_000_000) return `${(n/1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000)     return `${(n/1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)         return `${(n/1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+// ─── KanbanCard ───────────────────────────────────────────────────────────────
+function KanbanCard({
+  req, myAction, search, compact, multi,
+}: {
+  req: SkladRequest;
+  myAction: boolean;
+  search: string;
+  compact: boolean;
+  multi: boolean; // column has multiple statuses shown
+}) {
+  const isUrgent = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
+  const isCritical = req.urgencyLevel === 'critical';
+  const TI = TYPE_ICONS[req.requestType ?? 'other'];
+  const TC = TYPE_COLORS[req.requestType ?? 'other'];
+  const urgColor = URGENCY_COLOR_HEX[req.urgencyLevel ?? 'normal'];
+  const today = new Date().toISOString().slice(0, 10);
+  const isOverdue = req.plannedDate && req.plannedDate < today && req.status !== 'vydano' && req.status !== 'otkloneno';
+  const daysIn = daysSince(req.updatedAt ?? req.createdAt);
+  const daysLeft = req.plannedDate ? daysUntil(req.plannedDate) : null;
+  const isRejected = req.status === 'otkloneno';
+
+  return (
+    <Link to={`/requests/${req.id}`}
+      className={`group relative block bg-white rounded-xl border-l-4 transition-all hover:shadow-lg ${
+        isRejected ? 'opacity-60' : ''
+      } ${
+        myAction ? 'border-l-yellow-400 shadow-yellow-100/50' :
+        isOverdue ? 'border-l-red-400' :
+        isCritical ? 'border-l-red-400' :
+        isUrgent ? 'border-l-orange-400' :
+        'hover:border-l-[#c89587]'
+      }`}
+      style={{
+        borderLeftColor: myAction ? '#fbbf24' : isOverdue ? '#f87171' : urgColor,
+        boxShadow: myAction ? '0 0 0 1px #fde68a' : undefined,
+      }}>
+
+      {/* Critical pulse dot */}
+      {isCritical && !isRejected && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse z-10" />
+      )}
+
+      <div className={`p-3 ${compact ? 'py-2' : ''}`}>
+        {/* Row 1: Icon + Number + Action badge */}
+        <div className="flex items-center gap-1.5 mb-2">
+          <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${TC.bg}`}>
+            <TI className={`w-3 h-3 ${TC.icon}`} />
+          </div>
+          <span className="text-xs font-mono text-gray-300">#{req.number}</span>
+          {multi && (
+            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}>
+              {STATUS_LABELS[req.status]}
+            </span>
+          )}
+          {!multi && myAction && (
+            <span className="ml-auto flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-full">
+              <Bell className="w-2.5 h-2.5" /> Действие
+            </span>
+          )}
+        </div>
+
+        {/* Row 2: Title */}
+        <p className={`font-semibold text-gray-900 leading-tight mb-2 ${
+          compact ? 'text-xs line-clamp-1' : 'text-sm line-clamp-2'
+        }`}>
+          {highlightText(req.title, search)}
+        </p>
+
+        {!compact && (
+          /* Row 3: Object */
+          <div className="flex items-center gap-1 text-xs text-gray-400 mb-2.5">
+            <Building2 className="w-3 h-3 shrink-0" />
+            <span className="truncate">{highlightText(req.objectName, search)}</span>
+          </div>
+        )}
+
+        {/* Row 4: Footer */}
+        <div className="flex items-center justify-between gap-1 flex-wrap">
+          <div className="flex items-center gap-1">
+            {/* Creator avatar/initial */}
+            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0">
+              {req.createdByName.charAt(0).toUpperCase()}
+            </div>
+            {!compact && (
+              <span className="text-[11px] text-gray-400 truncate max-w-[80px]">{req.createdByName.split(' ')[0]}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {/* Cost */}
+            {req.estimatedCost ? (
+              <span className="text-[11px] font-bold text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded">
+                {formatK(req.estimatedCost)}
+              </span>
+            ) : null}
+            {/* Urgency */}
+            {isUrgent && (
+              <span className={`text-[10px] px-1 py-0.5 rounded font-bold ${URGENCY_COLORS[req.urgencyLevel ?? 'normal']}`}>
+                {URGENCY_BADGE[req.urgencyLevel ?? 'normal']}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Row 5: Dates */}
+        {!compact && (req.plannedDate || daysIn > 0) && (
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+            {req.plannedDate ? (
+              <div className={`flex items-center gap-1 text-[11px] font-medium ${
+                isOverdue ? 'text-red-500' : daysLeft !== null && daysLeft <= 2 ? 'text-orange-500' : 'text-gray-400'
+              }`}>
+                {isOverdue ? <AlertTriangle className="w-3 h-3" /> : <CalendarDays className="w-3 h-3" />}
+                {isOverdue ? `Просрочено ${Math.abs(daysLeft ?? 0)} дн.` : `${daysLeft} дн.`}
+              </div>
+            ) : <span />}
+            <div className="flex items-center gap-1 text-[11px] text-gray-300">
+              <Clock className="w-2.5 h-2.5" />{daysIn}д
+            </div>
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+// ─── KanbanBoard ──────────────────────────────────────────────────────────────
+function KanbanBoard({
+  filtered, isNeedAction, search, userRole,
+}: {
+  filtered: SkladRequest[];
+  isNeedAction: (r: SkladRequest) => boolean;
+  search: string;
+  userRole: string;
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [compact, setCompact] = useState(false);
+  const [groupByObj, setGroupByObj] = useState(false);
+  const [sortBy, setSortBy] = useState<'urgency' | 'date' | 'cost' | 'updated'>('urgency');
+  const [showDone, setShowDone] = useState(true);
+
+  // Summary
+  const totalCost = filtered.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+  const actionCount = filtered.filter(r => isNeedAction(r)).length;
+  const overdueCount = filtered.filter(r => {
+    const today = new Date().toISOString().slice(0, 10);
+    return r.plannedDate && r.plannedDate < today && r.status !== 'vydano' && r.status !== 'otkloneno';
+  }).length;
+
+  const toggleCol = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // Sorting
+  const URGENCY_ORDER: Record<string, number> = { critical: 0, high: 1, normal: 2, low: 3 };
+  const sortCards = (cards: SkladRequest[]) => {
+    const c = [...cards];
+    if (sortBy === 'urgency') return c.sort((a, b) => (URGENCY_ORDER[a.urgencyLevel ?? 'normal'] ?? 2) - (URGENCY_ORDER[b.urgencyLevel ?? 'normal'] ?? 2));
+    if (sortBy === 'date')    return c.sort((a, b) => (a.plannedDate ?? '9999') < (b.plannedDate ?? '9999') ? -1 : 1);
+    if (sortBy === 'cost')    return c.sort((a, b) => (b.estimatedCost ?? 0) - (a.estimatedCost ?? 0));
+    if (sortBy === 'updated') return c.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return c;
+  };
+
+  const visibleCols = showDone ? KANBAN_COLUMNS : KANBAN_COLUMNS.filter(c => c.id !== 'done');
+
+  // GroupBy Object — build swimlanes
+  const objectNames = useMemo(() => {
+    const names = [...new Set(filtered.map(r => r.objectName))].sort();
+    return names;
+  }, [filtered]);
+
+  const SORT_OPTIONS: { id: typeof sortBy; label: string }[] = [
+    { id: 'urgency', label: 'По срочности' },
+    { id: 'date',    label: 'По дате' },
+    { id: 'cost',    label: 'По сумме' },
+    { id: 'updated', label: 'По обновлению' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-3 flex-wrap bg-white rounded-2xl border border-gray-100 px-4 py-3 shadow-sm">
+        {/* Stats */}
+        <div className="flex items-center gap-4 flex-1 flex-wrap">
+          <div className="flex items-center gap-1.5 text-sm">
+            <FileText className="w-4 h-4 text-gray-400" />
+            <span className="font-bold text-gray-700">{filtered.length}</span>
+            <span className="text-gray-400 hidden sm:inline">заявок</span>
+          </div>
+          {actionCount > 0 && (
+            <div className="flex items-center gap-1.5 text-sm">
+              <Bell className="w-4 h-4 text-yellow-500" />
+              <span className="font-bold text-yellow-600">{actionCount}</span>
+              <span className="text-gray-400 hidden sm:inline">действий</span>
+            </div>
+          )}
+          {overdueCount > 0 && (
+            <div className="flex items-center gap-1.5 text-sm">
+              <AlertTriangle className="w-4 h-4 text-red-400" />
+              <span className="font-bold text-red-500">{overdueCount}</span>
+              <span className="text-gray-400 hidden sm:inline">просрочено</span>
+            </div>
+          )}
+          {totalCost > 0 && (
+            <div className="flex items-center gap-1.5 text-sm">
+              <DollarSign className="w-4 h-4 text-gray-400" />
+              <span className="font-bold text-gray-700">{formatK(totalCost)}</span>
+              <span className="text-gray-400 hidden sm:inline">сум</span>
+            </div>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Sort */}
+          <div className="relative">
+            <div className="group flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 cursor-pointer hover:bg-gray-50 transition-colors">
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{SORT_OPTIONS.find(s => s.id === sortBy)?.label}</span>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full"
+              >
+                {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Group toggle */}
+          <button
+            onClick={() => setGroupByObj(!groupByObj)}
+            title={groupByObj ? 'Группировка по объекту (вкл)' : 'Группировка по объекту (выкл)'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
+              groupByObj ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}>
+            <Layers className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{groupByObj ? 'По объектам' : 'По объектам'}</span>
+          </button>
+
+          {/* Show done */}
+          <button
+            onClick={() => setShowDone(!showDone)}
+            title={showDone ? 'Скрыть завершённые' : 'Показать завершённые'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
+              showDone ? 'border-green-300 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+            }`}>
+            <CircleCheck className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{showDone ? 'С завершёнными' : 'Без завершённых'}</span>
+          </button>
+
+          {/* Compact */}
+          <button
+            onClick={() => setCompact(!compact)}
+            title={compact ? 'Компактный режим (вкл)' : 'Компактный режим'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
+              compact ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}>
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{compact ? 'Компакт' : 'Компакт'}</span>
+          </button>
+
+          {/* Expand all collapsed */}
+          {Object.values(collapsed).some(Boolean) && (
+            <button
+              onClick={() => setCollapsed({})}
+              title="Развернуть все"
+              className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+              <RotateCcw className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Board ── */}
+      <div className="overflow-x-auto pb-4">
+        {!groupByObj ? (
+          /* ── NORMAL MODE: Status columns ── */
+          <div className="flex gap-3" style={{ minWidth: `${visibleCols.filter(c => !collapsed[c.id]).length * 280 + visibleCols.filter(c => collapsed[c.id]).length * 48}px` }}>
+            {visibleCols.map(col => {
+              const cards = sortCards(filtered.filter(r => col.statuses.includes(r.status)));
+              const totalColCost = cards.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+              const actionCards = cards.filter(r => isNeedAction(r)).length;
+              const isCollapsed = collapsed[col.id];
+              const overWip = cards.length > col.wipLimit;
+
+              if (isCollapsed) {
+                return (
+                  <div key={col.id}
+                    className="w-12 flex flex-col items-center gap-2 cursor-pointer shrink-0"
+                    onClick={() => toggleCol(col.id)}>
+                    <div className="w-full py-3 rounded-xl flex flex-col items-center gap-2"
+                      style={{ background: col.bg }}>
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ background: col.color }} />
+                      <span className="text-xs font-black" style={{ color: col.color,
+                        writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}>
+                        {col.label}
+                      </span>
+                      <span className="text-xs font-black px-1 py-0.5 rounded-md text-white" style={{ background: col.color }}>
+                        {cards.length}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={col.id} className="flex flex-col gap-2 shrink-0" style={{ width: '272px' }}>
+                  {/* Column header */}
+                  <div className="rounded-xl overflow-hidden" style={{ background: col.bg }}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <span className="text-base">{col.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold" style={{ color: col.color }}>{col.label}</span>
+                          <span className={`text-xs font-black px-2 py-0.5 rounded-full text-white ${
+                            overWip ? 'animate-pulse' : ''
+                          }`} style={{ background: overWip ? '#ef4444' : col.color }}>
+                            {cards.length}{overWip ? ' ⚠' : ''}
+                          </span>
+                          {actionCards > 0 && (
+                            <span className="text-xs font-bold text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full">
+                              🔔 {actionCards}
+                            </span>
+                          )}
+                        </div>
+                        {totalColCost > 0 && (
+                          <p className="text-xs font-medium mt-0.5" style={{ color: col.color, opacity: 0.7 }}>
+                            {formatK(totalColCost)} сум
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => toggleCol(col.id)}
+                        className="p-1 rounded-lg opacity-40 hover:opacity-100 transition-opacity"
+                        style={{ color: col.color }}>
+                        <ChevronsLeft className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    {/* WIP mini-bar */}
+                    {col.wipLimit < 999 && (
+                      <div className="h-1" style={{ background: 'rgba(0,0,0,0.08)' }}>
+                        <div className="h-full transition-all duration-500 rounded-full"
+                          style={{
+                            width: `${Math.min(100, (cards.length / col.wipLimit) * 100)}%`,
+                            background: overWip ? '#ef4444' : col.color,
+                          }} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cards */}
+                  <div className="flex flex-col gap-2">
+                    {cards.length === 0 ? (
+                      <div className="py-10 text-center border-2 border-dashed border-gray-200 rounded-xl">
+                        <p className="text-xs text-gray-300">Нет заявок</p>
+                      </div>
+                    ) : cards.map(req => (
+                      <KanbanCard key={req.id} req={req} myAction={isNeedAction(req)}
+                        search={search} compact={compact} multi={col.statuses.length > 1} />
+                    ))}
+                  </div>
+
+                  {/* Column footer */}
+                  {cards.length > 3 && (
+                    <div className="text-center py-1">
+                      <span className="text-xs text-gray-400">{cards.length} карточек</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* ── SWIMLANE MODE: Group by Object ── */
+          <div className="space-y-4" style={{ minWidth: `${visibleCols.length * 220 + 160}px` }}>
+            {/* Sticky header row */}
+            <div className="flex gap-2">
+              <div className="w-40 shrink-0" />
+              {visibleCols.map(col => (
+                <div key={col.id} className="flex-1 rounded-xl px-3 py-2 flex items-center gap-2" style={{ background: col.bg }}>
+                  <span>{col.icon}</span>
+                  <span className="text-xs font-bold" style={{ color: col.color }}>{col.label}</span>
+                  <span className="ml-auto text-xs font-black text-white px-1.5 py-0.5 rounded-full" style={{ background: col.color }}>
+                    {filtered.filter(r => col.statuses.includes(r.status)).length}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Object rows */}
+            {objectNames.map(objName => {
+              const objRequests = filtered.filter(r => r.objectName === objName);
+              const objTotal = objRequests.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+              return (
+                <div key={objName} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                  {/* Swimlane header */}
+                  <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <Building2 className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="font-bold text-sm text-gray-700 truncate flex-1">{objName}</span>
+                    <span className="text-xs text-gray-400">{objRequests.length} заявок</span>
+                    {objTotal > 0 && <span className="text-xs font-bold text-gray-600">{formatK(objTotal)} сум</span>}
+                  </div>
+                  {/* Grid */}
+                  <div className="flex gap-2 p-2">
+                    {visibleCols.map(col => {
+                      const cards = sortCards(objRequests.filter(r => col.statuses.includes(r.status)));
+                      return (
+                        <div key={col.id} className="flex-1 flex flex-col gap-1.5 min-w-0">
+                          {cards.length === 0 ? (
+                            <div className="h-14 border border-dashed border-gray-100 rounded-lg flex items-center justify-center">
+                              <span className="text-xs text-gray-200">—</span>
+                            </div>
+                          ) : cards.map(req => (
+                            <KanbanCard key={req.id} req={req} myAction={isNeedAction(req)}
+                              search={search} compact={true} multi={col.statuses.length > 1} />
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            {objectNames.length === 0 && (
+              <div className="text-center py-16 text-gray-300">
+                <TableProperties className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Нет данных</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type QuickFilter = 'all' | 'mine' | 'need_action' | 'urgent' | 'open' | 'done';
 
@@ -103,14 +577,6 @@ export default function RequestsPage() {
 
   const isNeedAction = (r: SkladRequest) =>
     !!currentUser && needsMyAction(r.status, currentUser.role, r.chain ?? 'full');
-
-  const KANBAN_COLUMNS = [
-    { id: 'novaya',   label: 'Новые',        statuses: ['novaya'] as RequestStatus[],                                                             color: '#3b82f6', bg: '#eff6ff' },
-    { id: 'sklad',    label: 'У склада',     statuses: ['sklad_review','sklad_partial'] as RequestStatus[],                                        color: '#f59e0b', bg: '#fffbeb' },
-    { id: 'approval', label: 'Согласование', statuses: ['nachalnik_review','nachalnik_approved','finansist_review','finansist_approved'] as RequestStatus[], color: '#8b5cf6', bg: '#f5f3ff' },
-    { id: 'supply',   label: 'Закупка',      statuses: ['snab_process','zakupleno'] as RequestStatus[],                                              color: '#06b6d4', bg: '#ecfeff' },
-    { id: 'done',     label: 'Завершено',    statuses: ['vydano','otkloneno'] as RequestStatus[],                                                    color: '#22c55e', bg: '#f0fdf4' },
-  ];
 
   const exportCSV = () => {
     const headers = ['№','Название','Объект','Прораб','Тип','Статус','Срочность','Создана','К дате','Смета (сум)'];
@@ -314,78 +780,12 @@ export default function RequestsPage() {
 
       {/* ── КАНБАН ── */}
       {!loading && viewMode === 'kanban' && (
-        <div className="overflow-x-auto pb-4">
-          <div className="flex gap-4 min-w-max">
-            {KANBAN_COLUMNS.map(col => {
-              const colCards = filtered.filter(r => col.statuses.includes(r.status));
-              return (
-                <div key={col.id} className="w-72 flex flex-col gap-2">
-                  {/* Column header */}
-                  <div className="flex items-center justify-between px-3 py-2 rounded-xl"
-                    style={{ background: col.bg }}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                      <span className="text-sm font-bold" style={{ color: col.color }}>{col.label}</span>
-                    </div>
-                    <span className="text-xs font-black px-1.5 py-0.5 rounded-full" style={{ background: col.color, color:'#fff' }}>
-                      {colCards.length}
-                    </span>
-                  </div>
-                  {/* Cards */}
-                  <div className="flex flex-col gap-2">
-                    {colCards.length === 0 ? (
-                      <div className="text-center py-8 text-xs text-gray-300 border-2 border-dashed border-gray-200 rounded-xl">
-                        Пусто
-                      </div>
-                    ) : colCards.map(req => {
-                      const action = isNeedAction(req);
-                      const isUrgent = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
-                      const TI = TYPE_ICONS[req.requestType ?? 'other'];
-                      const TC = TYPE_COLORS[req.requestType ?? 'other'];
-                      return (
-                        <Link key={req.id} to={`/requests/${req.id}`}
-                          className={`block bg-white rounded-xl border p-3 hover:shadow-md transition-all ${
-                            action ? 'border-yellow-400' : isUrgent ? 'border-orange-300' : 'border-gray-200 hover:border-gray-300'
-                          }`}>
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${TC.bg}`}>
-                              <TI className={`w-3 h-3 ${TC.icon}`} />
-                            </div>
-                            <span className="text-xs font-mono text-gray-400">#{req.number}</span>
-                            {action && <Bell className="w-3 h-3 text-yellow-500 ml-auto" />}
-                          </div>
-                          <p className="text-sm font-semibold text-gray-900 leading-tight mb-1.5 line-clamp-2">{req.title}</p>
-                          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
-                            <Building2 className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{req.objectName}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-400">{req.createdByName.split(' ')[0]}</span>
-                            <div className="flex items-center gap-1">
-                              {isUrgent && (
-                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${URGENCY_COLORS[req.urgencyLevel ?? 'normal']}`}>
-                                  {URGENCY_LABELS[req.urgencyLevel ?? 'normal'].split(' ')[0]}
-                                </span>
-                              )}
-                              {req.estimatedCost ? (
-                                <span className="text-xs text-gray-400">{(req.estimatedCost/1000).toFixed(0)}к</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          {req.plannedDate && (
-                            <div className="flex items-center gap-1 text-xs text-gray-400 mt-1.5 pt-1.5 border-t border-gray-100">
-                              <Clock className="w-2.5 h-2.5" /> к {req.plannedDate}
-                            </div>
-                          )}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <KanbanBoard
+          filtered={filtered}
+          isNeedAction={isNeedAction}
+          search={search}
+          userRole={currentUser?.role ?? ''}
+        />
       )}
 
       {/* ── СПИСОК ── */}

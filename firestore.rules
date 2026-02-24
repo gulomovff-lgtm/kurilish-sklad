@@ -1,145 +1,57 @@
 rules_version = '2';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Nirvana Luxury Residence — Firebase Firestore Security Rules
-// RBAC implemented at the database level to complement frontend restrictions.
-// ─────────────────────────────────────────────────────────────────────────────
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ── Helper functions ────────────────────────────────────────────────────
 
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
-
-    function isRole(role) {
-      return isSignedIn() && userRole() == role;
-    }
-
-    function isOneOfRoles(roles) {
-      return isSignedIn() && userRole() in roles;
-    }
-
-    function isAdmin() {
-      return isRole('admin');
-    }
-
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
-    }
-
-    // ── /users ───────────────────────────────────────────────────────────────
-    // Any signed-in user can read their own doc.
-    // Admin can read all and write all.
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /requests ───────────────────────────────────────────────────────────
-    // prorab — read only OWN documents
-    // Everyone else — read all
-    // Write rules enforce the RBAC status-transition matrix
     match /requests/{requestId} {
-
-      // ── Read ─────────────────────────────────────────────────────────────
-      allow read: if isSignedIn() && (
-        isAdmin() ||
-        isOneOfRoles(['sklad', 'nachalnik', 'finansist', 'snab']) ||
-        // prorab only sees own
-        (isRole('prоrab') && resource.data.createdBy == request.auth.uid)
-      );
-
-      // ── Create ───────────────────────────────────────────────────────────
-      // prorab and admin can create; new request must be owned by caller
-      allow create: if isSignedIn() && (
-        isAdmin() ||
-        (isRole('prоrab') && request.resource.data.createdBy == request.auth.uid)
-      );
-
-      // ── Update ───────────────────────────────────────────────────────────
-      allow update: if isSignedIn() && (
-        isAdmin() ||
-
-        // sklad: can change status of any request
-        isRole('sklad') ||
-
-        // nachalnik: can approve/reject + edit spec
-        isRole('nachalnik') ||
-
-        // finansist: can approve/reject + edit financial fields
-        isRole('finansist') ||
-
-        // snab: can move through purchase pipeline
-        isRole('snab') ||
-
-        // prorab: can ONLY set status to polucheno or otkloneno on OWN requests
-        (isRole('prоrab') &&
-         resource.data.createdBy == request.auth.uid &&
-         request.resource.data.status in ['polucheno', 'otkloneno'])
-      );
-
-      // ── Delete ───────────────────────────────────────────────────────────
-      allow delete: if isAdmin();
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
     }
 
-    // ── /stock ───────────────────────────────────────────────────────────────
-    // prorab has NO access to stock data
-    // snab: read-only
-    // sklad, nachalnik, admin: full access
     match /stock/{itemId} {
-      allow read: if isSignedIn() && isOneOfRoles(['sklad', 'nachalnik', 'finansist', 'snab', 'admin']);
-      allow write: if isOneOfRoles(['sklad', 'admin']);
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /movements ───────────────────────────────────────────────────────────
-    // Stock movement ledger — sklad and admin write, others read
     match /movements/{movementId} {
-      allow read: if isOneOfRoles(['sklad', 'nachalnik', 'finansist', 'snab', 'admin']);
-      allow write: if isOneOfRoles(['sklad', 'admin']);
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /purchase_orders ─────────────────────────────────────────────────────
-    // snab creates/manages consolidated POs; nachalnik and admin can read
     match /purchase_orders/{poId} {
-      allow read:   if isOneOfRoles(['snab', 'nachalnik', 'finansist', 'admin']);
-      allow create: if isOneOfRoles(['snab', 'admin']);
-      allow update: if isOneOfRoles(['snab', 'admin']);
-      allow delete: if isAdmin();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /objects ─────────────────────────────────────────────────────────────
-    // All roles can read objects; only admin writes
-    // Budget fields (totalBudget, spentBudget) are readable by nachalnik, finansist, admin
     match /objects/{objectId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /settings ────────────────────────────────────────────────────────────
-    // Only admin can read/write global settings (Telegram config etc.)
     match /settings/{settingId} {
-      allow read:  if isAdmin();
-      allow write: if isAdmin();
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // ── /sla_log ─────────────────────────────────────────────────────────────
-    match /sla_log/{logId} {
-      allow read:  if isOneOfRoles(['nachalnik', 'finansist', 'admin']);
-      allow write: if false; // written only by Cloud Functions
-    }
-
-    // ── /catalog ─────────────────────────────────────────────────────────────
-    // Material catalog — readable by all, writable by admin
     match /catalog/{itemId} {
       allow read:  if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isSignedIn();
+    }
+
+    match /sla_log/{logId} {
+      allow read:  if isSignedIn();
+      allow write: if false;
     }
 
   }

@@ -21,6 +21,7 @@ import {
 } from '../utils';
 import { sendRequestNotification } from '../services/telegram';
 import SplitRequestModal from '../components/SplitRequestModal';
+import { usePermission } from '../hooks/usePermission';
 import toast from 'react-hot-toast';
 
 const STATUS_TO_TG_EVENT: Partial<Record<RequestStatus, TelegramEvent>> = {
@@ -40,6 +41,7 @@ const STATUS_TO_TG_EVENT: Partial<Record<RequestStatus, TelegramEvent>> = {
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { currentUser } = useAuth();
+  const { canViewFinancial } = usePermission();
   const navigate = useNavigate();
 
   const [request, setRequest] = useState<SkladRequest | null>(null);
@@ -405,7 +407,7 @@ export default function RequestDetailPage() {
           {request.deliveryAddress && (
             <InfoRow icon={MapPin} label="Адрес" value={request.deliveryAddress} />
           )}
-          {request.estimatedCost && (
+          {canViewFinancial && request.estimatedCost && (
             <InfoRow icon={DollarSign} label="Смета" value={`${request.estimatedCost.toLocaleString('ru-RU')} сум`} />
           )}
           {request.zone && (
@@ -414,7 +416,7 @@ export default function RequestDetailPage() {
           {request.responsibleName && (
             <InfoRow icon={UserCheck} label="Получатель" value={request.responsibleName} />
           )}
-          {request.budgetCode && (
+          {canViewFinancial && request.budgetCode && (
             <InfoRow icon={Banknote} label="Код бюджета" value={request.budgetCode} />
           )}
           {request.preferredSupplier && (
@@ -473,7 +475,7 @@ export default function RequestDetailPage() {
                 {request.items.some(it => it.purchasedQty !== undefined) && (
                   <th className="text-right py-2 font-medium w-24 text-teal-600">Закуплено</th>
                 )}
-                {request.items.some(it => (it.estimatedPrice ?? 0) > 0) && (
+                {canViewFinancial && request.items.some(it => (it.estimatedPrice ?? 0) > 0) && (
                   <th className="text-right py-2 font-medium w-28 text-gray-400">Цена/ед.</th>
                 )}
               </tr>
@@ -516,7 +518,7 @@ export default function RequestDetailPage() {
                       {item.purchasedQty !== undefined ? `${item.purchasedQty} ${item.unit}` : '—'}
                     </td>
                   )}
-                  {request.items.some(it => (it.estimatedPrice ?? 0) > 0) && (
+                  {canViewFinancial && request.items.some(it => (it.estimatedPrice ?? 0) > 0) && (
                     <td className="py-2.5 text-right tabular-nums text-gray-400 text-xs">
                       {item.estimatedPrice ? `${item.estimatedPrice.toLocaleString('ru-RU')}` : '—'}
                     </td>
@@ -524,7 +526,7 @@ export default function RequestDetailPage() {
                 </tr>
               ))}
             </tbody>
-            {request.estimatedCost && (
+            {canViewFinancial && request.estimatedCost && (
               <tfoot>
                 <tr className="border-t-2 border-gray-200">
                   <td colSpan={2} className="py-2 text-right text-sm font-semibold text-gray-700">
@@ -721,6 +723,7 @@ function ChainTimeline({ request }: { request: SkladRequest }) {
   const isRejected = request.status === 'otkloneno';
   const isDone = request.status === 'vydano';
   const progress = getStatusProgress(request.status);
+  const { canViewFinancial } = usePermission();
 
   // SLA норма на каждый этап (часы)
   const SLA_HOURS: Partial<Record<RequestStatus, number>> = {
@@ -957,7 +960,7 @@ function ChainTimeline({ request }: { request: SkladRequest }) {
               <strong className="text-gray-700">{request.responsibleName}</strong>
             </span>
           )}
-          {request.budgetCode && (
+          {canViewFinancial && request.budgetCode && (
             <span className="flex items-center gap-1.5 text-sm text-gray-600">
               <Banknote className="w-3.5 h-3.5 text-gray-400" />
               <span className="text-gray-400 text-xs">Бюджет:</span>

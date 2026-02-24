@@ -20,6 +20,9 @@ import {
 } from '../utils';
 import toast from 'react-hot-toast';
 import CreatePurchaseOrderModal from '../components/CreatePurchaseOrderModal';
+import { checkPermission } from '../rbac';
+import { usePermission } from '../hooks/usePermission';
+import type { UserRole } from '../types';
 
 const TYPE_ICONS = { materials: Package, tools: Wrench, equipment: Cpu, services: Briefcase, other: Box };
 const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
@@ -312,7 +315,7 @@ function KanbanCard({
               )}
             </div>
             <div className="flex items-center gap-1">
-              {req.estimatedCost ? (
+              {checkPermission(currentUserRole as UserRole, 'view:financial') && req.estimatedCost ? (
                 <span className="text-[11px] font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
                   {formatK(req.estimatedCost)}
                 </span>
@@ -691,6 +694,7 @@ type QuickFilter = 'all' | 'mine' | 'need_action' | 'urgent' | 'open' | 'done';
 
 export default function RequestsPage() {
   const { currentUser } = useAuth();
+  const { canViewFinancial } = usePermission();
   const location = useLocation();
   const [requests, setRequests] = useState<SkladRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -869,7 +873,7 @@ export default function RequestsPage() {
           <h1 className="text-lg font-bold text-gray-900">Заявки</h1>
           <div className="flex items-center gap-1.5 text-sm text-gray-400 flex-wrap">
             <span>{filtered.length} заявок</span>
-            {totalCost > 0 && <><span className="opacity-40">·</span><span>{formatK(totalCost)} сум</span></>}
+            {canViewFinancial && totalCost > 0 && <><span className="opacity-40">·</span><span>{formatK(totalCost)} сум</span></>}
             {overdueCount > 0 && <><span className="opacity-40">·</span><span className="text-red-400 font-medium">{overdueCount} просроч.</span></>}
             {myActionCount > 0 && <><span className="opacity-40">·</span><span className="text-yellow-500 font-medium">🔔 {myActionCount}</span></>}
           </div>
@@ -1165,7 +1169,7 @@ export default function RequestsPage() {
                       {STATUS_LABELS[req.status]}
                     </span>
                     <span className="text-xs text-gray-400">{formatDate(req.updatedAt)}</span>
-                    {req.estimatedCost && (
+                    {canViewFinancial && req.estimatedCost && (
                       <span className="text-xs text-gray-500">
                         ~{req.estimatedCost.toLocaleString('ru-RU')} сум
                       </span>

@@ -1,21 +1,23 @@
-import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { collection, query, orderBy, onSnapshot, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import type { SkladRequest, RequestStatus, RequestType, UrgencyLevel } from '../types';
+import type { SkladRequest, RequestStatus, RequestType, UrgencyLevel, RequestHistoryEntry } from '../types';
 import {
   Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User,
   ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box, LayoutList, LayoutGrid, Download,
   ChevronsLeft, ArrowUpDown, Layers, AlertTriangle, SlidersHorizontal, TableProperties,
   CalendarDays, DollarSign, Flame, CircleCheck, RotateCcw,
+  ChevronRight, Zap, GitBranch, CheckCircle2, XCircle,
 } from 'lucide-react';
 import {
   formatDate, formatDateShort, STATUS_LABELS, STATUS_COLORS,
   REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
   URGENCY_LABELS, URGENCY_COLORS, URGENCY_BADGE,
-  CHAIN_LABELS, needsMyAction,
+  CHAIN_LABELS, needsMyAction, getNextStatuses, getChainSteps,
 } from '../utils';
+import toast from 'react-hot-toast';
 
 const TYPE_ICONS = { materials: Package, tools: Wrench, equipment: Cpu, services: Briefcase, other: Box };
 const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
@@ -67,138 +69,312 @@ function formatK(n: number): string {
   return String(n);
 }
 
+// ─── ChainTimeline ─────────────────────────────────────────────────────────────
+function ChainTimeline({ req }: { req: SkladRequest }) {
+  const steps = getChainSteps(req.chain ?? 'full');
+  const isDone = req.status === 'vydano';
+  const isRejected = req.status === 'otkloneno';
+
+  // Build map: status → arrival ISO from history
+  const arrivedAt: Record<string, string> = { novaya: req.createdAt };
+  (req.history ?? []).forEach(h => { if (h.toStatus) arrivedAt[h.toStatus] = h.at; });
+
+  const currentIdx = (isDone || isRejected)
+    ? steps.length
+    : steps.findIndex(s => s.status === req.status);
+
+  return (
+    <div className="flex items-start overflow-x-auto pb-1" style={{ gap: 0 }}>
+      {steps.map((step, i) => {
+        const isPast = i < currentIdx;
+        const isCurrent = i === currentIdx && !isDone && !isRejected;
+
+        const thisTime = arrivedAt[step.status];
+        const nextStep = steps[i + 1];
+        const nextTime = nextStep
+          ? (arrivedAt[nextStep.status] ?? null)
+          : (isDone ? req.updatedAt : null);
+        const duration = thisTime && nextTime
+          ? Math.max(0, Math.round((new Date(nextTime).getTime() - new Date(thisTime).getTime()) / 86_400_000))
+          : null;
+
+        return (
+          <div key={step.status} className="flex items-start shrink-0">
+            {/* Node */}
+            <div className="flex flex-col items-center" style={{ minWidth: '38px' }}>
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold border-2 ${
+                isPast
+                  ? 'border-gray-300 bg-gray-200 text-gray-400'
+                  : isCurrent
+                  ? 'border-blue-500 bg-blue-500 text-white'
+                  : 'border-gray-200 bg-white text-gray-300'
+              }`}>
+                {isPast ? '✓' : i + 1}
+              </div>
+              <span className={`text-[8px] text-center leading-tight mt-0.5 w-10 truncate ${
+                isPast ? 'text-gray-300' : isCurrent ? 'text-blue-600 font-bold' : 'text-gray-200'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+            {/* Connector */}
+            {i < steps.length - 1 && (
+              <div className="flex flex-col items-center mt-2 mx-0.5 shrink-0" style={{ minWidth: '24px' }}>
+                <div className={`h-0.5 w-full rounded ${isPast ? 'bg-gray-300' : 'bg-gray-100'}`} />
+                {duration !== null && isPast && (
+                  <span className="text-[8px] text-gray-300 mt-0.5 whitespace-nowrap">{duration === 0 ? '<1д' : `${duration}д`}</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Status action button styles ──────────────────────────────────────────────
+const STATUS_ACTION_STYLE: Partial<Record<RequestStatus, string>> = {
+  vydano:             'bg-green-500  hover:bg-green-600  text-white',
+  nachalnik_approved: 'bg-indigo-500 hover:bg-indigo-600 text-white',
+  finansist_approved: 'bg-violet-500 hover:bg-violet-600 text-white',
+  snab_process:       'bg-cyan-500   hover:bg-cyan-600   text-white',
+  zakupleno:          'bg-teal-500   hover:bg-teal-600   text-white',
+  otkloneno:          'bg-red-500    hover:bg-red-600    text-white',
+  sklad_partial:      'bg-orange-500 hover:bg-orange-600 text-white',
+  nachalnik_review:   'bg-purple-500 hover:bg-purple-600 text-white',
+  finansist_review:   'bg-pink-500   hover:bg-pink-600   text-white',
+};
+
 // ─── KanbanCard ───────────────────────────────────────────────────────────────
 function KanbanCard({
   req, myAction, search, compact, multi,
+  currentUserRole, currentUserUid, currentUserName,
 }: {
   req: SkladRequest;
   myAction: boolean;
   search: string;
   compact: boolean;
-  multi: boolean; // column has multiple statuses shown
+  multi: boolean;
+  currentUserRole: string;
+  currentUserUid: string;
+  currentUserName: string;
 }) {
-  const isUrgent = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
+  const [showActions, setShowActions] = useState(false);
+  const [showChain, setShowChain] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const isUrgent   = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
   const isCritical = req.urgencyLevel === 'critical';
   const TI = TYPE_ICONS[req.requestType ?? 'other'];
   const TC = TYPE_COLORS[req.requestType ?? 'other'];
   const urgColor = URGENCY_COLOR_HEX[req.urgencyLevel ?? 'normal'];
   const today = new Date().toISOString().slice(0, 10);
-  const isOverdue = req.plannedDate && req.plannedDate < today && req.status !== 'vydano' && req.status !== 'otkloneno';
-  const daysIn = daysSince(req.updatedAt ?? req.createdAt);
+  const isOverdue  = req.plannedDate && req.plannedDate < today && req.status !== 'vydano' && req.status !== 'otkloneno';
+  const daysIn  = daysSince(req.updatedAt ?? req.createdAt);
   const daysLeft = req.plannedDate ? daysUntil(req.plannedDate) : null;
   const isRejected = req.status === 'otkloneno';
+  const isDone     = req.status === 'vydano' || req.status === 'otkloneno';
+
+  const nextStatuses = currentUserRole
+    ? getNextStatuses(req.status, currentUserRole as any, req.chain ?? 'full')
+    : [];
+
+  const handleStatusChange = async (newStatus: RequestStatus, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (updating) return;
+    setUpdating(true);
+    try {
+      const entry: RequestHistoryEntry = {
+        at: new Date().toISOString(),
+        by: currentUserUid,
+        byName: currentUserName,
+        action: `${STATUS_LABELS[req.status]} → ${STATUS_LABELS[newStatus]}`,
+        fromStatus: req.status,
+        toStatus: newStatus,
+      };
+      await updateDoc(doc(db, 'requests', req.id), {
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+        history: [...(req.history ?? []), entry],
+      });
+      toast.success(STATUS_LABELS[newStatus]);
+      setShowActions(false);
+    } catch {
+      toast.error('Ошибка при обновлении');
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   return (
-    <Link to={`/requests/${req.id}`}
-      className={`group relative block bg-white rounded-xl border-l-4 transition-all hover:shadow-lg ${
-        isRejected ? 'opacity-60' : ''
-      } ${
-        myAction ? 'border-l-yellow-400 shadow-yellow-100/50' :
-        isOverdue ? 'border-l-red-400' :
-        isCritical ? 'border-l-red-400' :
-        isUrgent ? 'border-l-orange-400' :
-        'hover:border-l-[#c89587]'
-      }`}
+    <div
+      className={`group relative bg-white rounded-xl border border-gray-100 border-l-4 transition-all hover:shadow-md ${isRejected ? 'opacity-60' : ''}`}
       style={{
         borderLeftColor: myAction ? '#fbbf24' : isOverdue ? '#f87171' : urgColor,
-        boxShadow: myAction ? '0 0 0 1px #fde68a' : undefined,
+        boxShadow: myAction
+          ? '0 0 0 1px #fde68a, 0 1px 4px rgba(0,0,0,0.07)'
+          : '0 1px 4px rgba(0,0,0,0.06)',
       }}>
 
-      {/* Critical pulse dot */}
+      {/* Critical pulse */}
       {isCritical && !isRejected && (
         <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse z-10" />
       )}
 
-      <div className={`p-3 ${compact ? 'py-2' : ''}`}>
-        {/* Row 1: Icon + Number + Action badge */}
-        <div className="flex items-center gap-1.5 mb-2">
-          <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${TC.bg}`}>
-            <TI className={`w-3 h-3 ${TC.icon}`} />
-          </div>
-          <span className="text-xs font-mono text-gray-300">#{req.number}</span>
-          {multi && (
-            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}>
-              {STATUS_LABELS[req.status]}
-            </span>
-          )}
-          {!multi && myAction && (
-            <span className="ml-auto flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-full">
-              <Bell className="w-2.5 h-2.5" /> Действие
-            </span>
-          )}
-        </div>
-
-        {/* Row 2: Title */}
-        <p className={`font-semibold text-gray-900 leading-tight mb-2 ${
-          compact ? 'text-xs line-clamp-1' : 'text-sm line-clamp-2'
-        }`}>
-          {highlightText(req.title, search)}
-        </p>
-
-        {!compact && (
-          /* Row 3: Object */
-          <div className="flex items-center gap-1 text-xs text-gray-400 mb-2.5">
-            <Building2 className="w-3 h-3 shrink-0" />
-            <span className="truncate">{highlightText(req.objectName, search)}</span>
-          </div>
-        )}
-
-        {/* Row 4: Footer */}
-        <div className="flex items-center justify-between gap-1 flex-wrap">
-          <div className="flex items-center gap-1">
-            {/* Creator avatar/initial */}
-            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0">
-              {req.createdByName.charAt(0).toUpperCase()}
+      {/* Clickable body → detail page */}
+      <Link to={`/requests/${req.id}`} className="block">
+        <div className={`px-3 ${compact ? 'py-2' : 'pt-3 pb-2'}`}>
+          {/* Row 1: type icon + number + badge */}
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${TC.bg}`}>
+              <TI className={`w-3.5 h-3.5 ${TC.icon}`} />
             </div>
-            {!compact && (
-              <span className="text-[11px] text-gray-400 truncate max-w-[80px]">{req.createdByName.split(' ')[0]}</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Cost */}
-            {req.estimatedCost ? (
-              <span className="text-[11px] font-bold text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded">
-                {formatK(req.estimatedCost)}
+            <span className="text-xs font-mono text-gray-300">#{req.number}</span>
+            {multi && (
+              <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[req.status]}`}>
+                {STATUS_LABELS[req.status]}
               </span>
-            ) : null}
-            {/* Urgency */}
-            {isUrgent && (
-              <span className={`text-[10px] px-1 py-0.5 rounded font-bold ${URGENCY_COLORS[req.urgencyLevel ?? 'normal']}`}>
-                {URGENCY_BADGE[req.urgencyLevel ?? 'normal']}
+            )}
+            {!multi && myAction && !showActions && (
+              <span className="ml-auto flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-full">
+                <Bell className="w-2.5 h-2.5" /> Действие
               </span>
             )}
           </div>
-        </div>
 
-        {/* Row 5: Dates */}
-        {!compact && (req.plannedDate || daysIn > 0) && (
-          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-            {req.plannedDate ? (
-              <div className={`flex items-center gap-1 text-[11px] font-medium ${
-                isOverdue ? 'text-red-500' : daysLeft !== null && daysLeft <= 2 ? 'text-orange-500' : 'text-gray-400'
-              }`}>
-                {isOverdue ? <AlertTriangle className="w-3 h-3" /> : <CalendarDays className="w-3 h-3" />}
-                {isOverdue ? `Просрочено ${Math.abs(daysLeft ?? 0)} дн.` : `${daysLeft} дн.`}
+          {/* Title */}
+          <p className={`font-semibold text-gray-900 leading-tight mb-1.5 ${
+            compact ? 'text-xs line-clamp-1' : 'text-sm line-clamp-2'
+          }`}>
+            {highlightText(req.title, search)}
+          </p>
+
+          {!compact && (
+            <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
+              <Building2 className="w-3 h-3 shrink-0" />
+              <span className="truncate">{highlightText(req.objectName, search)}</span>
+            </div>
+          )}
+
+          {/* Footer: avatar + cost + urgency */}
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0">
+                {req.createdByName.charAt(0).toUpperCase()}
               </div>
-            ) : <span />}
-            <div className="flex items-center gap-1 text-[11px] text-gray-300">
-              <Clock className="w-2.5 h-2.5" />{daysIn}д
+              {!compact && (
+                <span className="text-[11px] text-gray-400 truncate max-w-[70px]">{req.createdByName.split(' ')[0]}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {req.estimatedCost ? (
+                <span className="text-[11px] font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
+                  {formatK(req.estimatedCost)}
+                </span>
+              ) : null}
+              {isUrgent && (
+                <span className={`text-[10px] px-1 py-0.5 rounded font-bold ${URGENCY_COLORS[req.urgencyLevel ?? 'normal']}`}>
+                  {URGENCY_BADGE[req.urgencyLevel ?? 'normal']}
+                </span>
+              )}
             </div>
           </div>
-        )}
-      </div>
-    </Link>
+
+          {/* Dates */}
+          {!compact && (req.plannedDate || daysIn > 0) && (
+            <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-50">
+              {req.plannedDate ? (
+                <div className={`flex items-center gap-1 text-[11px] font-medium ${
+                  isOverdue ? 'text-red-500' : daysLeft !== null && daysLeft <= 2 ? 'text-orange-500' : 'text-gray-400'
+                }`}>
+                  {isOverdue ? <AlertTriangle className="w-3 h-3" /> : <CalendarDays className="w-3 h-3" />}
+                  {isOverdue
+                    ? `Просрочено ${Math.abs(daysLeft ?? 0)}д`
+                    : `${daysLeft}д до срока`}
+                </div>
+              ) : <span />}
+              <div className="flex items-center gap-1 text-[11px] text-gray-300">
+                <Clock className="w-2.5 h-2.5" />{daysIn}д
+              </div>
+            </div>
+          )}
+        </div>
+      </Link>
+
+      {/* ── Chain timeline (expandable) ── */}
+      {!compact && (
+        <div className="px-3 pb-1.5">
+          <button
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setShowChain(v => !v); }}
+            className="flex items-center gap-1 text-[10px] text-gray-300 hover:text-gray-500 transition-colors"
+          >
+            <GitBranch className="w-3 h-3" />
+            <span>{showChain ? 'Скрыть цепочку' : 'Показать цепочку'}</span>
+            <ChevronRight className={`w-3 h-3 transition-transform ${showChain ? 'rotate-90' : ''}`} />
+          </button>
+          {showChain && (
+            <div className="mt-1.5 rounded-lg bg-gray-50 px-2 py-2">
+              <ChainTimeline req={req} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Inline status actions ── */}
+      {nextStatuses.length > 0 && (
+        <div className="px-3 pb-2.5">
+          {!showActions ? (
+            <button
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setShowActions(true); }}
+              disabled={isDone}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 transition-colors"
+            >
+              <Zap className="w-3 h-3" />
+              Обработать
+            </button>
+          ) : (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Перевести в:</span>
+                <button
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); setShowActions(false); }}
+                  className="p-0.5 text-gray-300 hover:text-gray-500"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {nextStatuses.map(status => (
+                <button
+                  key={status}
+                  onClick={e => handleStatusChange(status, e)}
+                  disabled={updating}
+                  className={`w-full text-[11px] font-bold py-1.5 px-2 rounded-lg transition-colors disabled:opacity-50 ${
+                    STATUS_ACTION_STYLE[status] ?? 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  {STATUS_LABELS[status]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
 // ─── KanbanBoard ──────────────────────────────────────────────────────────────
 function KanbanBoard({
-  filtered, isNeedAction, search, userRole,
+  filtered, isNeedAction, search, userRole, currentUserUid, currentUserName,
 }: {
   filtered: SkladRequest[];
   isNeedAction: (r: SkladRequest) => boolean;
   search: string;
   userRole: string;
+  currentUserUid: string;
+  currentUserName: string;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [compact, setCompact] = useState(false);
@@ -371,65 +547,67 @@ function KanbanBoard({
               }
 
               return (
-                <div key={col.id} className="flex flex-col gap-2 shrink-0" style={{ width: '272px' }}>
-                  {/* Column header */}
-                  <div className="rounded-xl overflow-hidden" style={{ background: col.bg }}>
+                <div key={col.id} className="flex flex-col gap-0 shrink-0 rounded-2xl overflow-hidden shadow-sm border border-gray-200"
+                  style={{ width: '276px', background: '#f8f9fa' }}>
+                  {/* Column header — solid color top bar */}
+                  <div style={{ background: col.color }}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       <span className="text-base">{col.icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold" style={{ color: col.color }}>{col.label}</span>
-                          <span className={`text-xs font-black px-2 py-0.5 rounded-full text-white ${
-                            overWip ? 'animate-pulse' : ''
-                          }`} style={{ background: overWip ? '#ef4444' : col.color }}>
+                          <span className="text-sm font-bold text-white">{col.label}</span>
+                          <span className={`text-xs font-black px-2 py-0.5 rounded-full bg-white/20 text-white ${
+                            overWip ? 'animate-pulse !bg-red-600' : ''
+                          }`}>
                             {cards.length}{overWip ? ' ⚠' : ''}
                           </span>
                           {actionCards > 0 && (
-                            <span className="text-xs font-bold text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full">
+                            <span className="text-xs font-bold text-yellow-900 bg-yellow-300 px-1.5 py-0.5 rounded-full">
                               🔔 {actionCards}
                             </span>
                           )}
                         </div>
                         {totalColCost > 0 && (
-                          <p className="text-xs font-medium mt-0.5" style={{ color: col.color, opacity: 0.7 }}>
+                          <p className="text-xs font-medium text-white/70 mt-0.5">
                             {formatK(totalColCost)} сум
                           </p>
                         )}
                       </div>
                       <button onClick={() => toggleCol(col.id)}
-                        className="p-1 rounded-lg opacity-40 hover:opacity-100 transition-opacity"
-                        style={{ color: col.color }}>
+                        className="p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/20 transition-all"
+                        title="Свернуть">
                         <ChevronsLeft className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    {/* WIP mini-bar */}
+                    {/* WIP progress bar */}
                     {col.wipLimit < 999 && (
-                      <div className="h-1" style={{ background: 'rgba(0,0,0,0.08)' }}>
-                        <div className="h-full transition-all duration-500 rounded-full"
+                      <div className="h-1 bg-white/20">
+                        <div className="h-full transition-all duration-500"
                           style={{
                             width: `${Math.min(100, (cards.length / col.wipLimit) * 100)}%`,
-                            background: overWip ? '#ef4444' : col.color,
+                            background: overWip ? '#ef4444' : 'rgba(255,255,255,0.7)',
                           }} />
                       </div>
                     )}
                   </div>
 
-                  {/* Cards */}
-                  <div className="flex flex-col gap-2">
+                  {/* Cards area */}
+                  <div className="flex flex-col gap-2 p-2.5 flex-1">
                     {cards.length === 0 ? (
-                      <div className="py-10 text-center border-2 border-dashed border-gray-200 rounded-xl">
+                      <div className="py-10 text-center border-2 border-dashed border-gray-200 rounded-xl bg-white">
                         <p className="text-xs text-gray-300">Нет заявок</p>
                       </div>
                     ) : cards.map(req => (
                       <KanbanCard key={req.id} req={req} myAction={isNeedAction(req)}
-                        search={search} compact={compact} multi={col.statuses.length > 1} />
+                        search={search} compact={compact} multi={col.statuses.length > 1}
+                        currentUserRole={userRole} currentUserUid={currentUserUid} currentUserName={currentUserName} />
                     ))}
                   </div>
 
                   {/* Column footer */}
                   {cards.length > 3 && (
-                    <div className="text-center py-1">
-                      <span className="text-xs text-gray-400">{cards.length} карточек</span>
+                    <div className="text-center py-1.5 text-xs text-gray-400 bg-white/50 border-t border-gray-100">
+                      {cards.length} карточек
                     </div>
                   )}
                 </div>
@@ -478,7 +656,8 @@ function KanbanBoard({
                             </div>
                           ) : cards.map(req => (
                             <KanbanCard key={req.id} req={req} myAction={isNeedAction(req)}
-                              search={search} compact={true} multi={col.statuses.length > 1} />
+                              search={search} compact={true} multi={col.statuses.length > 1}
+                              currentUserRole={userRole} currentUserUid={currentUserUid} currentUserName={currentUserName} />
                           ))}
                         </div>
                       );
@@ -505,18 +684,45 @@ type QuickFilter = 'all' | 'mine' | 'need_action' | 'urgent' | 'open' | 'done';
 
 export default function RequestsPage() {
   const { currentUser } = useAuth();
+  const location = useLocation();
   const [requests, setRequests] = useState<SkladRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => sessionStorage.getItem('req_search') ?? '');
   const [filterStatus, setFilterStatus] = useState<RequestStatus | 'all'>('all');
   const [filterType, setFilterType] = useState<RequestType | 'all'>('all');
   const [filterUrgency, setFilterUrgency] = useState<UrgencyLevel | 'all'>('all');
   const [filterObject, setFilterObject] = useState('');
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => {
+    const s = sessionStorage.getItem('req_quickFilter');
+    return (['all','mine','need_action','urgent','open','done'].includes(s ?? '')) ? s as QuickFilter : 'all';
+  });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+  // Kanban is primary view; restored from session
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
+    const s = sessionStorage.getItem('req_viewMode');
+    return s === 'list' ? 'list' : 'kanban';
+  });
+
+  // ── Persist state in sessionStorage ───────────────────────────────────────
+  useEffect(() => { sessionStorage.setItem('req_viewMode', viewMode); }, [viewMode]);
+  useEffect(() => { sessionStorage.setItem('req_quickFilter', quickFilter); }, [quickFilter]);
+  useEffect(() => { sessionStorage.setItem('req_search', search); }, [search]);
+
+  // ── Scroll restoration when navigating back ────────────────────────────────
+  useEffect(() => {
+    const saved = sessionStorage.getItem('req_scrollY');
+    if (saved) {
+      const y = parseInt(saved, 10);
+      requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' as ScrollBehavior }));
+      sessionStorage.removeItem('req_scrollY');
+    }
+    return () => {
+      sessionStorage.setItem('req_scrollY', String(window.scrollY));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -785,6 +991,8 @@ export default function RequestsPage() {
           isNeedAction={isNeedAction}
           search={search}
           userRole={currentUser?.role ?? ''}
+          currentUserUid={currentUser?.uid ?? ''}
+          currentUserName={currentUser?.displayName ?? ''}
         />
       )}
 

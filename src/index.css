@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: #fdf9f7;
+    color: #59301f;
+  }
+  h1, h2, h3 {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    letter-spacing: 0.01em;
+  }
+  /* Custom scrollbar — nirvana palette */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #f7ede7; }
+  ::-webkit-scrollbar-thumb { background: #c89587; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #a67161; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#c89587] hover:bg-[#a67161] text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-[#f7ede7] hover:bg-[#edd5c8] text-[#59301f] font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  .btn-success {
+    @apply bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  .btn-warning {
+    @apply bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors;
+  }
+  .input-field {
+    @apply w-full border border-[#ddb8a6] rounded-lg px-3 py-2 bg-white text-[#59301f] focus:outline-none focus:ring-2 focus:ring-[#c89587] focus:border-transparent placeholder:text-[#c8a090];
+  }
+  .card {
+    @apply bg-white rounded-xl border border-[#edd5c8] shadow-sm p-5;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .section-heading {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    @apply text-[#59301f] font-semibold tracking-wide;
+  }
+}

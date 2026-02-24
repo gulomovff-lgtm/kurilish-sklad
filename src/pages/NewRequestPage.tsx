@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import {
   UNITS, CATEGORIES, REQUEST_TYPE_LABELS, DEFAULT_CHAIN,
-  CHAIN_LABELS, CHAIN_DESCRIPTIONS, URGENCY_LABELS, MATERIALS_CATALOG,
+  CHAIN_LABELS, CHAIN_DESCRIPTIONS, URGENCY_LABELS, MATERIALS_CATALOG, MATERIAL_TAGS,
 } from '../utils';
 import { sendRequestNotification } from '../services/telegram';
 import toast from 'react-hot-toast';
@@ -42,6 +42,7 @@ interface DraftState {
   deliveryAddress: string; zone: string; comment: string;
   budgetCode: string; preferredSupplier: string;
   subcontractors: string[]; responsibleUid: string;
+  tags: string[];
   items: Omit<RequestItem, 'id'>[];
 }
 
@@ -66,6 +67,7 @@ export default function NewRequestPage() {
 
   // New fields
   const [zone, setZone] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [budgetCode, setBudgetCode] = useState('');
   const [preferredSupplier, setPreferredSupplier] = useState('');
   const [subcontractors, setSubcontractors] = useState<string[]>([]);
@@ -81,6 +83,7 @@ export default function NewRequestPage() {
 
   // Data
   const [objects, setObjects] = useState<ConstructionObject[]>([]);
+  const [objectBlocks, setObjectBlocks] = useState<{ id: string; name: string }[]>([]);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [items, setItems] = useState<Omit<RequestItem, 'id'>[]>([
     { name: '', unit: 'шт', quantity: 1, category: '' },
@@ -130,7 +133,7 @@ export default function NewRequestPage() {
   const getDraftState = (): DraftState => ({
     title, objectId, objectName, requestType, chain, urgencyLevel,
     plannedDate, deliveryAddress, zone, comment, budgetCode,
-    preferredSupplier, subcontractors, responsibleUid, items,
+    preferredSupplier, subcontractors, responsibleUid, tags, items,
   });
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,7 +176,7 @@ export default function NewRequestPage() {
       setDeliveryAddress(d.deliveryAddress || ''); setZone(d.zone || '');
       setComment(d.comment || ''); setBudgetCode(d.budgetCode || '');
       setPreferredSupplier(d.preferredSupplier || ''); setSubcontractors(d.subcontractors || []);
-      setResponsibleUid(d.responsibleUid || '');
+      setResponsibleUid(d.responsibleUid || ''); setTags(d.tags || []);
       setItems(d.items?.length ? d.items : [{ name: '', unit: 'шт', quantity: 1, category: '' }]);
       toast.success('Черновик восстановлен');
     } catch { toast.error('Ошибка при чтении черновика'); }
@@ -198,6 +201,7 @@ export default function NewRequestPage() {
     setZone(t.draft.zone || ''); setComment(t.draft.comment || '');
     setBudgetCode(t.draft.budgetCode || ''); setPreferredSupplier(t.draft.preferredSupplier || '');
     setSubcontractors(t.draft.subcontractors || []); setResponsibleUid(t.draft.responsibleUid || '');
+    setTags(t.draft.tags || []);
     setItems(t.draft.items?.length ? t.draft.items : [{ name: '', unit: 'шт', quantity: 1, category: '' }]);
     setShowTemplates(false);
     toast.success(`Шаблон "${t.name}" загружен`);
@@ -221,8 +225,14 @@ export default function NewRequestPage() {
   const handleObjectSelect = (id: string) => {
     setObjectId(id);
     const obj = objects.find(o => o.id === id);
-    if (obj) { setObjectName(obj.name); if (obj.address) setDeliveryAddress(obj.address); }
-    else setObjectName('');
+    if (obj) {
+      setObjectName(obj.name);
+      if (obj.address) setDeliveryAddress(obj.address);
+      setObjectBlocks(obj.blocks ?? []);
+    } else {
+      setObjectName('');
+      setObjectBlocks([]);
+    }
   };
 
   const addItem = () => setItems(prev => [...prev, { name: '', unit: 'шт', quantity: 1, category: '' }]);
@@ -321,6 +331,8 @@ export default function NewRequestPage() {
         ...(subcontractors.length > 0 ? { subcontractors } : {}),
         ...(responsibleUid ? { responsibleUid, responsibleName: responsibleUser?.displayName || '' } : {}),
         ...(estimatedTotal > 0 ? { estimatedCost: estimatedTotal } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
+        slaEnteredAt: now,
         history: [{
           at: now, by: currentUser.uid, byName: currentUser.displayName,
           action: 'Заявка создана', toStatus: 'novaya',
@@ -552,11 +564,26 @@ export default function NewRequestPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 <MapPin className="inline w-3.5 h-3.5 mr-1 text-gray-400" />
-                Зона / место на объекте
+                Участок / место на объекте
               </label>
+              {objectBlocks.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {objectBlocks.map(b => (
+                    <button key={b.id} type="button"
+                      onClick={() => setZone(b.name)}
+                      className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-medium ${
+                        zone === b.name
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                      }`}>
+                      {b.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <input type="text" value={zone} onChange={e => setZone(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c89587]"
-                placeholder="Блок А, этаж 3, секция 12" />
+                placeholder={objectBlocks.length > 0 ? 'Или введите вручную…' : 'Блок А, этаж 3, секция 12'} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Адрес доставки / место выдачи</label>
@@ -570,6 +597,30 @@ export default function NewRequestPage() {
             <textarea value={comment} onChange={e => setComment(e.target.value)} rows={2}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#c89587] resize-none"
               placeholder="Особые указания..." />
+          </div>
+
+          {/* Теги */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Tag className="inline w-3.5 h-3.5 mr-1 text-gray-400" />
+              Теги для группировки закупок
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {MATERIAL_TAGS.map(t => {
+                const active = tags.includes(t.id);
+                return (
+                  <button key={t.id} type="button"
+                    onClick={() => setTags(prev => active ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+                      active ? 'border-transparent text-white' : 'border-gray-200 text-gray-600 bg-white hover:border-gray-300'
+                    }`}
+                    style={active ? { background: t.color } : {}}>
+                    <span>{t.emoji}</span>
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

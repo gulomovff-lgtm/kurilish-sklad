@@ -3,12 +3,12 @@ import {
   collection, addDoc, updateDoc, deleteDoc, onSnapshot, doc, query, orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { ConstructionObject } from '../types';
+import type { ConstructionObject, ObjectBlock } from '../types';
 import { formatDateShort, formatMoney } from '../utils';
 import { useAuth } from '../contexts/AuthContext';
 import {
   Building2, Plus, Pencil, Trash2, Search, CheckCircle2,
-  XCircle, MapPin, DollarSign, User, Hash
+  XCircle, MapPin, DollarSign, User, Hash, Layers, X, GripVertical
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -21,7 +21,12 @@ const emptyForm = (): Omit<ConstructionObject, 'id' | 'createdAt'> => ({
   isActive: true,
   budget: undefined,
   spent: 0,
+  blocks: [],
 });
+
+function newBlock(): ObjectBlock {
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: '' };
+}
 
 export default function ObjectsPage() {
   const { currentUser } = useAuth();
@@ -65,6 +70,7 @@ export default function ObjectsPage() {
       isActive: obj.isActive,
       budget: obj.budget,
       spent: obj.spent ?? 0,
+      blocks: obj.blocks ? [...obj.blocks] : [],
     });
     setShowModal(true);
   };
@@ -201,6 +207,24 @@ export default function ObjectsPage() {
                   </div>
                 </div>
 
+                {/* Блоки/участки */}
+                {obj.blocks && obj.blocks.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1 text-xs text-gray-400 mb-1.5">
+                      <Layers className="w-3 h-3" />
+                      <span>Участки / блоки:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {obj.blocks.map(b => (
+                        <span key={b.id}
+                          className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                          {b.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Бюджет */}
                 {obj.budget && obj.budget > 0 && (
                   <div className="space-y-1">
@@ -275,7 +299,7 @@ export default function ObjectsPage() {
       {/* Модальное окно */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-900">
               {editing ? 'Редактировать объект' : 'Новый объект'}
             </h2>
@@ -331,6 +355,57 @@ export default function ObjectsPage() {
                   placeholder="50 000 000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
+              </div>
+
+              {/* ── Блоки / Участки ── */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                    Блоки / Участки
+                    <span className="ml-1 text-gray-400 font-normal">(произвольные названия)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, blocks: [...(f.blocks ?? []), newBlock()] }))}
+                    className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Добавить
+                  </button>
+                </div>
+                {(form.blocks ?? []).length === 0 && (
+                  <p className="text-xs text-gray-400 italic py-2 text-center border border-dashed border-gray-200 rounded-lg">
+                    Нет участков — заявки будут без привязки к блоку
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {(form.blocks ?? []).map((block, idx) => (
+                    <div key={block.id} className="flex items-center gap-2">
+                      <GripVertical className="w-3.5 h-3.5 text-gray-300 shrink-0" />
+                      <input
+                        value={block.name}
+                        onChange={e => setForm(f => ({
+                          ...f,
+                          blocks: (f.blocks ?? []).map((b, i) =>
+                            i === idx ? { ...b, name: e.target.value } : b
+                          ),
+                        }))}
+                        placeholder={`Блок ${idx + 1}: «Секция А», «Этаж 3», «Кровля»…`}
+                        className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          blocks: (f.blocks ?? []).filter((_, i) => i !== idx),
+                        }))}
+                        className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer">

@@ -16,6 +16,7 @@ import {
   REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
   URGENCY_LABELS, URGENCY_COLORS, URGENCY_BADGE,
   CHAIN_LABELS, needsMyAction, getNextStatuses, getChainSteps,
+  MATERIAL_TAGS, SLA_HOURS,
 } from '../utils';
 import toast from 'react-hot-toast';
 
@@ -42,11 +43,18 @@ const ALL_STATUSES: RequestStatus[] = [
 ];
 
 const KANBAN_COLUMNS = [
-  { id: 'novaya',   label: 'Новые',        icon: '🆕', statuses: ['novaya'] as RequestStatus[],                                                                      color: '#3b82f6', bg: '#eff6ff',  wipLimit: 10 },
-  { id: 'sklad',    label: 'У склада',     icon: '📦', statuses: ['sklad_review','sklad_partial'] as RequestStatus[],                                                 color: '#f59e0b', bg: '#fffbeb',  wipLimit: 8  },
-  { id: 'approval', label: 'Согласование', icon: '✅', statuses: ['nachalnik_review','nachalnik_approved','finansist_review','finansist_approved'] as RequestStatus[], color: '#8b5cf6', bg: '#f5f3ff',  wipLimit: 12 },
-  { id: 'supply',   label: 'Закупка',      icon: '🛒', statuses: ['snab_process','zakupleno'] as RequestStatus[],                                                     color: '#06b6d4', bg: '#ecfeff',  wipLimit: 15 },
-  { id: 'done',     label: 'Завершено',    icon: '🏁', statuses: ['vydano','otkloneno'] as RequestStatus[],                                                           color: '#22c55e', bg: '#f0fdf4',  wipLimit: 999 },
+  { id: 'novaya',    label: 'Новые',        icon: '📋', statuses: ['novaya'] as RequestStatus[],
+    color: '#6b7280', bg: '#f3f4f6', wipLimit: 10 },
+  { id: 'sklad',     label: 'У склада',     icon: '📦', statuses: ['sklad_review','sklad_partial'] as RequestStatus[],
+    color: '#d97706', bg: '#fffbeb', wipLimit: 8  },
+  { id: 'nachalnik', label: 'Согласование', icon: '👔', statuses: ['nachalnik_review','nachalnik_approved'] as RequestStatus[],
+    color: '#2563eb', bg: '#eff6ff', wipLimit: 12 },
+  { id: 'finansist', label: 'Финансы',      icon: '💰', statuses: ['finansist_review','finansist_approved'] as RequestStatus[],
+    color: '#7c3aed', bg: '#f5f3ff', wipLimit: 8  },
+  { id: 'supply',    label: 'Закупка',      icon: '🚚', statuses: ['snab_process','zakupleno'] as RequestStatus[],
+    color: '#0891b2', bg: '#ecfeff', wipLimit: 15 },
+  { id: 'done',      label: 'Завершено',    icon: '✅', statuses: ['vydano','otkloneno'] as RequestStatus[],
+    color: '#15803d', bg: '#f0fdf4', wipLimit: 999 },
 ];
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -176,6 +184,19 @@ function KanbanCard({
   const isRejected = req.status === 'otkloneno';
   const isDone     = req.status === 'vydano' || req.status === 'otkloneno';
 
+  // SLA calc
+  const slaHrs = SLA_HOURS[req.status];
+  const slaEntry = req.slaEnteredAt ?? req.updatedAt;
+  const hrsInStatus = (Date.now() - new Date(slaEntry).getTime()) / 3_600_000;
+  const slaOverdue = !isDone && slaHrs !== undefined && hrsInStatus > slaHrs;
+  const slaWarning = !isDone && slaHrs !== undefined && !slaOverdue && hrsInStatus > slaHrs * 0.75;
+  const slaRemainingH = slaHrs !== undefined ? Math.max(0, slaHrs - hrsInStatus) : null;
+
+  // Tags
+  const reqTags = (req.tags ?? [])
+    .map(id => MATERIAL_TAGS.find(t => t.id === id))
+    .filter(Boolean) as typeof MATERIAL_TAGS;
+
   const nextStatuses = currentUserRole
     ? getNextStatuses(req.status, currentUserRole as any, req.chain ?? 'full')
     : [];
@@ -197,6 +218,7 @@ function KanbanCard({
       await updateDoc(doc(db, 'requests', req.id), {
         status: newStatus,
         updatedAt: new Date().toISOString(),
+        slaEnteredAt: new Date().toISOString(),
         history: [...(req.history ?? []), entry],
       });
       toast.success(STATUS_LABELS[newStatus]);
@@ -210,7 +232,7 @@ function KanbanCard({
 
   return (
     <div
-      className={`group relative bg-white rounded-xl border border-gray-100 border-l-4 transition-all hover:shadow-md ${isRejected ? 'opacity-60' : ''}`}
+      className={`group relative bg-white rounded-xl border border-gray-100 border-l-4 transition-all hover:shadow-md ${isRejected ? 'opacity-60' : ''} ${slaOverdue ? 'ring-2 ring-red-400' : slaWarning ? 'ring-1 ring-orange-300' : ''}`}
       style={{
         borderLeftColor: myAction ? '#fbbf24' : isOverdue ? '#f87171' : urgColor,
         boxShadow: myAction
@@ -302,6 +324,30 @@ function KanbanCard({
           )}
         </div>
       </Link>
+
+      {/* ── SLA индикатор ── */}
+      {!isDone && slaHrs !== undefined && !compact && (
+        <div className={`mx-3 mb-1.5 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-bold ${
+          slaOverdue ? 'bg-red-50 text-red-700 border border-red-200' : slaWarning ? 'bg-orange-50 text-orange-600' : 'bg-gray-50 text-gray-400'
+        }`}>
+          <Clock className="w-3 h-3 shrink-0" />
+          {slaOverdue
+            ? `⚠ SLA просрочен на ${Math.round(hrsInStatus - slaHrs)}ч`
+            : `SLA: ещё ~${slaRemainingH !== null && slaRemainingH < 1 ? '< 1ч' : `${Math.round(slaRemainingH ?? 0)}ч`}`}
+        </div>
+      )}
+
+      {/* ── Теги ── */}
+      {reqTags.length > 0 && !compact && (
+        <div className="px-3 pb-1.5 flex flex-wrap gap-1">
+          {reqTags.map(t => (
+            <span key={t.id} className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+              style={{ background: t.bg, color: t.color }}>
+              {t.emoji} {t.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* ── Chain timeline (expandable) ── */}
       {!compact && (

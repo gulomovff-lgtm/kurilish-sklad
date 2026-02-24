@@ -119,6 +119,12 @@ export interface SkladRequest {
   budgetCode?: string;            // Код бюджетной статьи
   preferredSupplier?: string;     // Предпочтительный поставщик
   attachments?: string[];         // URL вложений (Firebase Storage)
+
+  // Теги для визуального управления
+  tags?: string[];                 // «Горящее», «Инструмент», «Сыпучие», «Техника»
+
+  // SLA: момент входа в текущий статус
+  slaEnteredAt?: string;           // ISO — когда вошли в текущий статус
 }
 
 export interface StockItem {
@@ -149,6 +155,13 @@ export interface StockMovement {
   createdByName: string;
 }
 
+// Блок/участок объекта строительства
+export interface ObjectBlock {
+  id: string;        // уникальный (crypto.randomUUID или Date.now)
+  name: string;      // произвольное название: «Секция А», «Этаж 3», «Кровля»
+  description?: string;
+}
+
 // Объект строительства
 export interface ConstructionObject {
   id: string;
@@ -163,6 +176,7 @@ export interface ConstructionObject {
   spent?: number;
   description?: string;
   telegramChatId?: string;
+  blocks?: ObjectBlock[];          // Блоки/участки: «Секция А», «Монолит», «Кровля»…
 }
 
 // Позиция из каталога материалов

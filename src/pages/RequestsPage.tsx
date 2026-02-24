@@ -39,22 +39,24 @@ const URGENCY_COLOR_HEX: Record<string, string> = {
 const ALL_STATUSES: RequestStatus[] = [
   'novaya','sklad_review','sklad_partial','nachalnik_review',
   'nachalnik_approved','finansist_review','finansist_approved',
-  'snab_process','zakupleno','vydano','otkloneno',
+  'snab_process','zakupleno','v_puti','vydano','polucheno','otkloneno',
 ];
 
 const KANBAN_COLUMNS = [
-  { id: 'novaya',    label: 'Новые',        icon: '📋', statuses: ['novaya'] as RequestStatus[],
+  { id: 'novaya',    label: 'Новые',         icon: '📋', statuses: ['novaya'] as RequestStatus[],
     color: '#6b7280', bg: '#f3f4f6', wipLimit: 10 },
-  { id: 'sklad',     label: 'У склада',     icon: '📦', statuses: ['sklad_review','sklad_partial'] as RequestStatus[],
+  { id: 'sklad',     label: 'У склада',       icon: '📦', statuses: ['sklad_review','sklad_partial'] as RequestStatus[],
     color: '#d97706', bg: '#fffbeb', wipLimit: 8  },
   { id: 'nachalnik', label: 'Согласование', icon: '👔', statuses: ['nachalnik_review','nachalnik_approved'] as RequestStatus[],
     color: '#2563eb', bg: '#eff6ff', wipLimit: 12 },
-  { id: 'finansist', label: 'Финансы',      icon: '💰', statuses: ['finansist_review','finansist_approved'] as RequestStatus[],
+  { id: 'finansist', label: 'Финансы',       icon: '💰', statuses: ['finansist_review','finansist_approved'] as RequestStatus[],
     color: '#7c3aed', bg: '#f5f3ff', wipLimit: 8  },
-  { id: 'supply',    label: 'Закупка',      icon: '🚚', statuses: ['snab_process','zakupleno'] as RequestStatus[],
+  { id: 'supply',    label: 'Закупка',        icon: '🚚', statuses: ['snab_process','zakupleno','v_puti'] as RequestStatus[],
     color: '#0891b2', bg: '#ecfeff', wipLimit: 15 },
-  { id: 'done',      label: 'Завершено',    icon: '✅', statuses: ['vydano','otkloneno'] as RequestStatus[],
-    color: '#15803d', bg: '#f0fdf4', wipLimit: 999 },
+  { id: 'vydano',    label: 'У прораба',      icon: '📬', statuses: ['vydano'] as RequestStatus[],
+    color: '#16a34a', bg: '#f0fdf4', wipLimit: 999 },
+  { id: 'done',      label: 'Закрыто',        icon: '✅', statuses: ['polucheno','otkloneno'] as RequestStatus[],
+    color: '#059669', bg: '#ecfdf5', wipLimit: 999 },
 ];
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -143,11 +145,13 @@ function ChainTimeline({ req }: { req: SkladRequest }) {
 
 // ─── Status action button styles ──────────────────────────────────────────────
 const STATUS_ACTION_STYLE: Partial<Record<RequestStatus, string>> = {
-  vydano:             'bg-green-500  hover:bg-green-600  text-white',
+  vydano:             'bg-lime-500   hover:bg-lime-600   text-white',
+  polucheno:          'bg-green-600  hover:bg-green-700  text-white',
   nachalnik_approved: 'bg-indigo-500 hover:bg-indigo-600 text-white',
   finansist_approved: 'bg-violet-500 hover:bg-violet-600 text-white',
   snab_process:       'bg-cyan-500   hover:bg-cyan-600   text-white',
   zakupleno:          'bg-teal-500   hover:bg-teal-600   text-white',
+  v_puti:             'bg-sky-500    hover:bg-sky-600    text-white',
   otkloneno:          'bg-red-500    hover:bg-red-600    text-white',
   sklad_partial:      'bg-orange-500 hover:bg-orange-600 text-white',
   nachalnik_review:   'bg-purple-500 hover:bg-purple-600 text-white',
@@ -178,11 +182,11 @@ function KanbanCard({
   const TC = TYPE_COLORS[req.requestType ?? 'other'];
   const urgColor = URGENCY_COLOR_HEX[req.urgencyLevel ?? 'normal'];
   const today = new Date().toISOString().slice(0, 10);
-  const isOverdue  = req.plannedDate && req.plannedDate < today && req.status !== 'vydano' && req.status !== 'otkloneno';
+  const isOverdue  = req.plannedDate && req.plannedDate < today && req.status !== 'vydano' && req.status !== 'polucheno' && req.status !== 'otkloneno';
   const daysIn  = daysSince(req.updatedAt ?? req.createdAt);
   const daysLeft = req.plannedDate ? daysUntil(req.plannedDate) : null;
   const isRejected = req.status === 'otkloneno';
-  const isDone     = req.status === 'vydano' || req.status === 'otkloneno';
+  const isDone     = req.status === 'vydano' || req.status === 'polucheno' || req.status === 'otkloneno';
 
   // SLA calc
   const slaHrs = SLA_HOURS[req.status];

@@ -28,7 +28,9 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
   finansist_approved: 'Одобрено фин.',
   snab_process: 'В снабжении',
   zakupleno: 'Закуплено',
-  vydano: 'Выдано ✓',
+  v_puti: 'В пути →',
+  vydano: 'Выдано ✔',
+  polucheno: 'Получено ✓',
   otkloneno: 'Отклонено ✗',
 };
 
@@ -42,7 +44,9 @@ export const STATUS_COLORS: Record<RequestStatus, string> = {
   finansist_approved: 'bg-violet-100 text-violet-800',
   snab_process: 'bg-cyan-100 text-cyan-800',
   zakupleno: 'bg-teal-100 text-teal-800',
-  vydano: 'bg-green-100 text-green-800',
+  v_puti: 'bg-sky-100 text-sky-800',
+  vydano: 'bg-lime-100 text-lime-800',
+  polucheno: 'bg-green-100 text-green-800',
   otkloneno: 'bg-red-100 text-red-800',
 };
 
@@ -125,11 +129,13 @@ export const MATERIAL_TAGS: { id: string; label: string; color: string; bg: stri
 export const SLA_HOURS: Partial<Record<RequestStatus, number>> = {
   novaya:             48,   // Склад должен обработать в течение 2 суток
   sklad_review:       24,   // Склад — 24 ч
-  sklad_partial:      12,   // Частично — 12 ч
+  sklad_partial:      12,   // Частично — 12 ч (триггер сплита)
   nachalnik_review:   24,   // Начальник — 24 ч
   finansist_review:   24,   // Финансист — 24 ч (жёсткий контроль)
-  snab_process:       72,   // Снабжение — 3 суток
-  zakupleno:          48,   // Закуплено → выдать — 2 суток
+  snab_process:       72,   // Снабжение — 3 сутоки
+  zakupleno:          24,   // Закуплено → отгрузить — 24 ч
+  v_puti:             48,   // В пути — 2 суток до доставки
+  vydano:             72,   // Выдано — 3 суток на подтверждению прорабом
 };
 
 export const TG_EVENT_LABELS: Record<TelegramEvent, string> = {
@@ -140,11 +146,14 @@ export const TG_EVENT_LABELS: Record<TelegramEvent, string> = {
   finansist_needed: 'Требуется одобрение финансиста',
   finansist_approved: 'Финансист одобрил',
   snab_needed: 'Требуется обработка снабжения',
-  zakupleno: 'Материалы закуплены',
-  vydano: 'Заявка выполнена (выдано)',
+  zakupleno: 'Материалы закуплены — готовью к отгрузке',
+  v_puti: 'Материалы отгружены — в пути на объект',
+  vydano: 'Склад выдал материалы прорабу',
+  polucheno: 'Прораб подтвердил получение — заявка закрыта',
   otkloneno: 'Заявка отклонена',
   urgent_created: 'Срочная / критичная заявка',
   low_stock: 'Низкий остаток на складе',
+  sla_breached: 'Просрочка SLA — заявка зависла',
 };
 
 export const UNITS = ['шт', 'кг', 'т', 'м', 'м²', 'м³', 'л', 'уп', 'рул', 'лист', 'мешок', 'компл', 'пара', 'пог.м', 'бухт'];
@@ -332,7 +341,10 @@ export function getNextStatuses(
     }
     if (status === 'nachalnik_approved' && (chain === 'full' || chain === 'warehouse_only')) return ['vydano', 'sklad_partial'];
     if (status === 'finansist_approved') return ['vydano', 'sklad_partial'];
+    // После закупки: склад может зафиксировать выдачу
     if (status === 'zakupleno') return ['vydano'];
+    // После транзита: склад принимает и выдаёт
+    if (status === 'v_puti') return ['vydano'];
     if (status === 'sklad_partial') return ['vydano', 'nachalnik_review'];
   }
 
@@ -355,10 +367,14 @@ export function getNextStatuses(
     if (status === 'nachalnik_approved') return ['snab_process', 'otkloneno'];
     if (status === 'finansist_approved') return ['snab_process', 'otkloneno'];
     if (status === 'snab_process') return ['zakupleno'];
+    // Снаб отправляет закупленное на доставку
+    if (status === 'zakupleno') return ['v_puti'];
   }
 
   if (role === 'prоrab') {
     if (status === 'novaya') return ['otkloneno'];
+    // Прораб подтверждает фактическое получение
+    if (status === 'vydano') return ['polucheno'];
   }
   return [];
 }
@@ -380,7 +396,13 @@ export function getResponsibleRole(status: RequestStatus, chain: RequestChain = 
   if (status === 'finansist_review') return 'finansist';
   if (status === 'finansist_approved') return 'snab';
   if (status === 'snab_process') return 'snab';
-  if (status === 'zakupleno') return 'sklad';
+  // Снаб отгружает после закупки
+  if (status === 'zakupleno') return 'snab';
+  // Склад принимает доставку и выдаёт
+  if (status === 'v_puti') return 'sklad';
+  // Прораб должен подтвердить получение
+  if (status === 'vydano') return 'prоrab';
+  // Получено прорабом — финальный
   return null;
 }
 
@@ -391,16 +413,18 @@ export function needsMyAction(status: RequestStatus, role: UserRole, chain: Requ
 
 export function getStatusProgress(status: RequestStatus): number {
   const map: Record<RequestStatus, number> = {
-    novaya: 8,
-    sklad_review: 20,
-    sklad_partial: 32,
-    nachalnik_review: 42,
-    nachalnik_approved: 55,
-    finansist_review: 65,
-    finansist_approved: 75,
-    snab_process: 85,
-    zakupleno: 93,
-    vydano: 100,
+    novaya: 7,
+    sklad_review: 18,
+    sklad_partial: 28,
+    nachalnik_review: 38,
+    nachalnik_approved: 50,
+    finansist_review: 60,
+    finansist_approved: 70,
+    snab_process: 78,
+    zakupleno: 86,
+    v_puti: 92,
+    vydano: 96,
+    polucheno: 100,
     otkloneno: 100,
   };
   return map[status] ?? 0;
@@ -412,6 +436,7 @@ export function getChainSteps(chain: RequestChain): { label: string; status: Req
       { label: 'Создана', status: 'novaya' },
       { label: 'Склад', status: 'sklad_review' },
       { label: 'Выдано', status: 'vydano' },
+      { label: 'Получено', status: 'polucheno' },
     ];
   }
   if (chain === 'purchase_only') {
@@ -421,7 +446,9 @@ export function getChainSteps(chain: RequestChain): { label: string; status: Req
       { label: 'Одобрено', status: 'nachalnik_approved' },
       { label: 'Снабжение', status: 'snab_process' },
       { label: 'Закуплено', status: 'zakupleno' },
+      { label: 'В пути', status: 'v_puti' },
       { label: 'Выдано', status: 'vydano' },
+      { label: 'Получено', status: 'polucheno' },
     ];
   }
   if (chain === 'full_finance') {
@@ -432,7 +459,9 @@ export function getChainSteps(chain: RequestChain): { label: string; status: Req
       { label: 'Финансист', status: 'finansist_review' },
       { label: 'Снабжение', status: 'snab_process' },
       { label: 'Закуплено', status: 'zakupleno' },
+      { label: 'В пути', status: 'v_puti' },
       { label: 'Выдано', status: 'vydano' },
+      { label: 'Получено', status: 'polucheno' },
     ];
   }
   if (chain === 'finance_only') {
@@ -442,16 +471,20 @@ export function getChainSteps(chain: RequestChain): { label: string; status: Req
       { label: 'Финансист', status: 'finansist_review' },
       { label: 'Снабжение', status: 'snab_process' },
       { label: 'Закуплено', status: 'zakupleno' },
+      { label: 'В пути', status: 'v_puti' },
       { label: 'Выдано', status: 'vydano' },
+      { label: 'Получено', status: 'polucheno' },
     ];
   }
-  // full
+  // full (default)
   return [
     { label: 'Создана', status: 'novaya' },
     { label: 'Склад', status: 'sklad_review' },
     { label: 'Нач. участка', status: 'nachalnik_review' },
     { label: 'Снабжение', status: 'snab_process' },
     { label: 'Закуплено', status: 'zakupleno' },
+    { label: 'В пути', status: 'v_puti' },
     { label: 'Выдано', status: 'vydano' },
+    { label: 'Получено', status: 'polucheno' },
   ];
 }

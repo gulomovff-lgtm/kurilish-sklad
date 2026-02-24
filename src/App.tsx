@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
@@ -13,9 +14,21 @@ import UsersPage from './pages/UsersPage';
 import ObjectsPage from './pages/ObjectsPage';
 import TelegramSettingsPage from './pages/TelegramSettingsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import { checkAndNotifySlaBreaches } from './services/telegram';
+
+const SLA_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 минут
 
 function AppRoutes() {
   const { currentUser, loading } = useAuth();
+
+  // ═══ SLA-эскалация: проверяем каждые 15 мин, когда пользователь залогинен ═══
+  useEffect(() => {
+    if (!currentUser) return;
+    // Первый запуск через 30с после входа (чтобы не спамить при старте)
+    const initial = setTimeout(() => checkAndNotifySlaBreaches().catch(() => {}), 30_000);
+    const interval = setInterval(() => checkAndNotifySlaBreaches().catch(() => {}), SLA_CHECK_INTERVAL_MS);
+    return () => { clearTimeout(initial); clearInterval(interval); };
+  }, [currentUser]);
 
   if (loading) {
     return (

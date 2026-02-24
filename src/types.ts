@@ -48,14 +48,16 @@ export interface RequestHistoryEntry {
 export type RequestStatus =
   | 'novaya'               // Новая
   | 'sklad_review'         // На рассмотрении склада
-  | 'sklad_partial'        // Частично выдано
+  | 'sklad_partial'        // Частично выдано (триггер сплита)
   | 'nachalnik_review'     // На одобрении начальника
   | 'nachalnik_approved'   // Одобрено начальником
   | 'finansist_review'     // На согласовании финансиста
   | 'finansist_approved'   // Одобрено финансистом
   | 'snab_process'         // В работе снабжения
   | 'zakupleno'            // Закуплено
-  | 'vydano'               // Выдано
+  | 'v_puti'               // В пути — транзит к объекту (снаб отгрузил)
+  | 'vydano'               // Выдано прорабу (склад подтвердил)
+  | 'polucheno'            // Получено прорабом ✓ ФИНАЛЬНЫЙ
   | 'otkloneno';           // Отклонено
 
 export interface RequestItem {
@@ -125,6 +127,17 @@ export interface SkladRequest {
 
   // SLA: момент входа в текущий статус
   slaEnteredAt?: string;           // ISO — когда вошли в текущий статус
+
+  // ── Разделение заявки (Сплит при sklad_partial) ──────────────────
+  parentId?: string;              // ID родительской заявки (дочерняя карточка Б)
+  childIds?: string[];            // ID дочерних заявок (закупочных)
+  splitNote?: string;             // Примечание кладовщика при разделении
+  isSplit?: boolean;              // Эта карточка является дочерней
+
+  // ── Подтверждение приёмки прорабом ───────────────────────────────
+  prorabConfirmedAt?: string;     // ISO — когда прораб нажал «Подтвердить приёмку»
+  prorabConfirmedBy?: string;     // UID прораба
+  prorabConfirmedByName?: string; // Имя прораба
 }
 
 export interface StockItem {
@@ -199,10 +212,13 @@ export type TelegramEvent =
   | 'finansist_approved'
   | 'snab_needed'
   | 'zakupleno'
-  | 'vydano'
+  | 'v_puti'          // Материалы отгружены поставщиком, в пути
+  | 'vydano'          // Склад выдал прорабу
+  | 'polucheno'       // Прораб подтвердил получение
   | 'otkloneno'
   | 'urgent_created'
-  | 'low_stock';
+  | 'low_stock'
+  | 'sla_breached';   // Автоматическая эскалация при просрочке SLA
 
 export interface TelegramChatConfig {
   id: string;

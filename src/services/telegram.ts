@@ -1,12 +1,12 @@
 // Сервис уведомлений Telegram
 // Используется прямой вызов Bot API из браузера
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getDocs, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { TelegramSettings, TelegramChatConfig, TelegramEvent, SkladRequest } from '../types';
 import {
   STATUS_LABELS, REQUEST_TYPE_LABELS, URGENCY_LABELS, CHAIN_LABELS,
-  formatDate
+  formatDate, SLA_HOURS,
 } from '../utils';
 
 const SETTINGS_DOC = 'settings/telegram';
@@ -215,8 +215,11 @@ export async function sendRequestNotification(
     case 'finansist_approved': emoji = '💵'; title = 'Одобрено финансистом';               break;
     case 'snab_needed':        emoji = '🚚'; title = 'Передано в снабжение';               break;
     case 'zakupleno':          emoji = '📦'; title = 'Материалы закуплены';                break;
-    case 'vydano':             emoji = '🎉'; title = 'Заявка выполнена — выдано';          break;
-    case 'otkloneno':          emoji = '❌'; title = 'Заявка отклонена';                   break;
+    case 'v_puti':              emoji = '🚚'; title = 'Материалы в пути на объект';      break;
+    case 'vydano':              emoji = '🎁'; title = 'Материалы выданы прорабу';        break;
+    case 'polucheno':           emoji = '✅'; title = 'Приёмка подтверждена прорабом';   break;
+    case 'otkloneno':           emoji = '❌'; title = 'Заявка отклонена';                    break;
+    case 'sla_breached':        emoji = '⏰'; title = 'ПРОСРОЧКА SLA — заявка зависла!';   break;
   }
 
   for (const chat of targets) {
@@ -316,4 +319,104 @@ export async function sendTestMessage(
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'Ошибка сети' };
   }
+}
+// ═══════════════════════════════════════════════════════════════════════════════
+// SLA ЭСКАЛАЦИЯ — фоновая проверка просрочки (клиентский cron)
+// Вызывается каждые 15 минут из App.tsx
+// При просрочке ≥100% отправляет форсированное уведомление в Telegram
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SLA_NOTIFIED_KEY = 'sla_breached_notified';
+const REPEAT_SILENCE_MS = 4 * 3_600_000; // повторный алерт не чаще 4 часов
+
+function getNotifiedMap(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(SLA_NOTIFIED_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveNotifiedMap(map: Record<string, number>): void {
+  try { localStorage.setItem(SLA_NOTIFIED_KEY, JSON.stringify(map)); } catch { /* ignore */ }
+}
+
+export async function checkAndNotifySlaBreaches(): Promise<void> {
+  const settings = await loadTelegramSettings();
+  if (!settings || !settings.enabled || !settings.botToken) return;
+
+  const TERMINAL: string[] = ['vydano', 'polucheno', 'otkloneno'];
+
+  let allRequests: SkladRequest[] = [];
+  try {
+    const snap = await getDocs(collection(db, 'requests'));
+    allRequests = snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as SkladRequest))
+      .filter(r => !TERMINAL.includes(r.status));
+  } catch {
+    return;
+  }
+
+  const now = Date.now();
+  const notified = getNotifiedMap();
+  let changed = false;
+
+  for (const req of allRequests) {
+    const slaHrs = SLA_HOURS[req.status];
+    if (!slaHrs) continue;
+
+    const entryMs = new Date(req.slaEnteredAt ?? req.updatedAt).getTime();
+    const limitMs = slaHrs * 3_600_000;
+    const elapsed = now - entryMs;
+    const overByMs = elapsed - limitMs;
+
+    if (overByMs < 0) continue; // ещё в норме
+
+    const cacheKey = `${req.id}:${req.status}`;
+    const lastAlert = notified[cacheKey];
+    if (lastAlert && now - lastAlert < REPEAT_SILENCE_MS) continue; // уже оповещали
+
+    const overByH = Math.round(overByMs / 3_600_000);
+    const statusName = STATUS_LABELS[req.status] ?? req.status;
+
+    // Формируем сообщение-эскалацию
+    const targets = settings.chats.filter(
+      (c: TelegramChatConfig) =>
+        c.isActive &&
+        c.events.includes('sla_breached') &&
+        matchesObjectFilter(c, req.objectId)
+    );
+    if (targets.length === 0) continue;
+
+    for (const chat of targets) {
+      const mention = chat.mentionTag ? ` @${chat.mentionTag}` : '';
+      const appLink = settings.appUrl
+        ? `\n\n🔗 <a href="${settings.appUrl.replace(/\/$/, '')}/requests/${req.id}">\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0443 →</a>`
+        : '';
+      const text =
+        `⏰ <b>ПРОСРОЧКА SLA${mention}</b>\n\n` +
+        `📋 <b>Заявка №${req.number}</b> — ${escapeHtml(req.title)}\n` +
+        `🏗 Объект: ${escapeHtml(req.objectName)}\n` +
+        `📊 Этап: <b>${escapeHtml(statusName)}</b>\n` +
+        `⚡ Срочность: ${urgencyLine(req.urgencyLevel)}\n` +
+        `⏱ Просрочено на: <b>${overByH} ч</b> (лимит ${slaHrs} ч)\n` +
+        `👷 Прораб: ${escapeHtml(req.createdByName)}\n` +
+        `🕐 ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Tashkent' })} (UTC+5)` +
+        appLink;
+
+      const params: TgSendParams = {
+        chat_id: chat.chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      };
+      if (chat.threadId) params.message_thread_id = parseInt(chat.threadId, 10);
+      await sendMessage(settings.botToken, params);
+    }
+
+    notified[cacheKey] = now;
+    changed = true;
+  }
+
+  if (changed) saveNotifiedMap(notified);
 }

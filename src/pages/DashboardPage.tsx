@@ -36,16 +36,16 @@ const ROLE_ICONS_LUCIDE: Record<string, React.ElementType> = {
   admin:     ShieldCheck,
 };
 
-const PIPELINE_STATUSES: { key: RequestStatus; label: string; color: string }[] = [
-  { key: 'novaya',             label: 'Новая',        color: '#3b82f6' },
-  { key: 'sklad_review',       label: 'У склада',     color: '#f59e0b' },
-  { key: 'sklad_partial',      label: 'Частично',     color: '#f97316' },
-  { key: 'nachalnik_review',   label: 'У нач.',       color: '#8b5cf6' },
-  { key: 'nachalnik_approved', label: 'Одобр. нач.',  color: '#6366f1' },
-  { key: 'finansist_review',   label: 'У фин.',       color: '#ec4899' },
-  { key: 'finansist_approved', label: 'Одобр. фин.',  color: '#a855f7' },
-  { key: 'snab_process',       label: 'В снабж.',     color: '#06b6d4' },
-  { key: 'zakupleno',          label: 'Закуплено',    color: '#14b8a6' },
+const PIPELINE_STATUSES: { key: RequestStatus; label: string; color: string; desc: string }[] = [
+  { key: 'novaya',             label: 'Новая',        color: '#3b82f6', desc: 'Новая заявка — ещё не рассмотрена' },
+  { key: 'sklad_review',       label: 'У склада',     color: '#f59e0b', desc: 'Ожидает рассмотрения склада' },
+  { key: 'sklad_partial',      label: 'Частично',     color: '#f97316', desc: 'Склад выдал частично — идёт согласование остатка' },
+  { key: 'nachalnik_review',   label: 'У нач.',       color: '#8b5cf6', desc: 'Ожидает одобрения начальника участка' },
+  { key: 'nachalnik_approved', label: 'Одобр. нач.',  color: '#6366f1', desc: 'Одобрено начальником — ждёт снабжения' },
+  { key: 'finansist_review',   label: 'У фин.',       color: '#ec4899', desc: 'На согласовании бюджета у финансиста' },
+  { key: 'finansist_approved', label: 'Одобр. фин.',  color: '#a855f7', desc: 'Бюджет согласован — ждёт снабжения' },
+  { key: 'snab_process',       label: 'В снабж.',     color: '#06b6d4', desc: 'Снабжение ведёт закупку' },
+  { key: 'zakupleno',          label: 'Закуплено',    color: '#14b8a6', desc: 'Товар закуплен — ожидает выдачи' },
 ];
 
 function getRuGreeting(): string {
@@ -97,6 +97,251 @@ function StatusBar({ active, done, rejected }: { active: number; done: number; r
       {rejected > 0 && <div className="rounded-r-full" style={{ flex: rejected, background: '#ef4444' }} />}
     </div>
   );
+}
+
+// ─── Блок персонализации по роли ─────────────────────────────────────────────
+function RoleSpecificPanel({
+  role, requests, loading,
+}: { role: string; requests: SkladRequest[]; loading: boolean }) {
+  const active = requests.filter(r => r.status !== 'vydano' && r.status !== 'otkloneno');
+
+  // ── Склад ──
+  if (role === 'sklad') {
+    const toReview = requests.filter(r => r.status === 'sklad_review' || r.status === 'sklad_partial');
+    if (!loading && toReview.length === 0) return null;
+    const totalItems = toReview.reduce((s, r) => s + r.items.length, 0);
+    return (
+      <div className="bg-white rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#edd5c8' }}>
+        <div className="px-5 py-3 flex items-center gap-3 border-b" style={{ borderColor: '#f7ede7', background: '#fdf9f7' }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#f7ede7' }}>
+            <Package className="w-3.5 h-3.5" style={{ color: '#a67161' }} />
+          </div>
+          <div>
+            <p className="font-bold text-sm" style={{ color: '#59301f' }}>Нужно рассмотреть — {loading ? '—' : toReview.length} заявок</p>
+            <p className="text-xs" style={{ color: '#a67161' }}>{totalItems} позиций к выдаче</p>
+          </div>
+          <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
+            Все <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {loading ? (
+          <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+        ) : (
+          <div className="divide-y divide-[#f7ede7]">
+            {toReview.slice(0, 5).map(req => (
+              <Link key={req.id} to={`/requests/${req.id}`}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-[#fdf9f7] transition-colors group">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: req.status === 'sklad_partial' ? '#f97316' : '#f59e0b' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate group-hover:underline" style={{ color: '#59301f' }}>{req.title}</p>
+                  <p className="text-xs text-gray-400">{req.objectName} · {req.items.length} поз.</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {(req.urgencyLevel === 'critical' || req.urgencyLevel === 'high') && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${URGENCY_COLORS[req.urgencyLevel]}`}>{URGENCY_BADGE[req.urgencyLevel]}</span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[req.status]}`}>{STATUS_LABELS[req.status]}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Начальник ──
+  if (role === 'nachalnik') {
+    const toApprove = requests.filter(r => r.status === 'nachalnik_review');
+    const byObject: Record<string, { name: string; count: number; cost: number }> = {};
+    for (const r of active) {
+      const k = r.objectId ?? r.objectName;
+      if (!byObject[k]) byObject[k] = { name: r.objectName, count: 0, cost: 0 };
+      byObject[k].count++;
+      byObject[k].cost += r.estimatedCost ?? 0;
+    }
+    const objects = Object.values(byObject).sort((a, b) => b.count - a.count).slice(0, 5);
+    if (!loading && toApprove.length === 0 && objects.length === 0) return null;
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {toApprove.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#edd5c8' }}>
+            <div className="px-5 py-3 flex items-center gap-3 border-b" style={{ borderColor: '#f7ede7', background: '#fdf9f7' }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-purple-100">
+                <Layers className="w-3.5 h-3.5 text-purple-600" />
+              </div>
+              <p className="font-bold text-sm" style={{ color: '#59301f' }}>Ожидают одобрения — {toApprove.length}</p>
+              <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
+                Все <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <div className="divide-y divide-[#f7ede7]">
+              {toApprove.slice(0, 4).map(req => (
+                <Link key={req.id} to={`/requests/${req.id}`}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-[#fdf9f7] transition-colors group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate group-hover:underline" style={{ color: '#59301f' }}>{req.title}</p>
+                    <p className="text-xs text-gray-400">{req.objectName} · от {req.createdByName}</p>
+                  </div>
+                  {req.estimatedCost ? <span className="text-xs font-bold shrink-0" style={{ color: '#a67161' }}>{formatCurrency(req.estimatedCost)} сум</span> : null}
+                  <ArrowRight className="w-3.5 h-3.5 shrink-0 opacity-30 group-hover:opacity-70" style={{ color: '#c89587' }} />
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+        {objects.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 p-5" style={{ borderColor: '#edd5c8' }}>
+            <div className="flex items-center gap-2 mb-4">
+              <Building2 className="w-4 h-4" style={{ color: '#c89587' }} />
+              <h2 className="font-bold text-sm" style={{ color: '#59301f' }}>Активных по объектам</h2>
+            </div>
+            <div className="space-y-2.5">
+              {objects.map(({ name, count, cost }) => (
+                <div key={name} className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#c89587' }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-700 font-medium truncate">{name}</span>
+                      <span className="text-xs font-bold ml-2 shrink-0" style={{ color: '#59301f' }}>{count}</span>
+                    </div>
+                    {cost > 0 && <p className="text-[10px] text-gray-400">{formatCurrency(cost)} сум</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Финансист ──
+  if (role === 'finansist') {
+    const toApprove = requests.filter(r => r.status === 'finansist_review');
+    const totalAmount = toApprove.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+    if (!loading && toApprove.length === 0) return null;
+    return (
+      <div className="bg-white rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#edd5c8' }}>
+        <div className="px-5 py-3 flex items-center gap-3 border-b" style={{ borderColor: '#f7ede7' }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-pink-100">
+            <DollarSign className="w-3.5 h-3.5 text-pink-600" />
+          </div>
+          <div>
+            <p className="font-bold text-sm" style={{ color: '#59301f' }}>На согласовании бюджета — {loading ? '—' : toApprove.length} заявок</p>
+            {totalAmount > 0 && <p className="text-xs" style={{ color: '#a67161' }}>Общая сумма: {formatCurrency(totalAmount)} сум</p>}
+          </div>
+          <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
+            Открыть <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {loading ? (
+          <div className="p-4 space-y-2">{[1,2].map(i => <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+        ) : (
+          <div className="divide-y divide-[#f7ede7]">
+            {toApprove.slice(0, 5).map(req => (
+              <Link key={req.id} to={`/requests/${req.id}`}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-[#fdf9f7] transition-colors group">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate group-hover:underline" style={{ color: '#59301f' }}>{req.title}</p>
+                  <p className="text-xs text-gray-400">{req.objectName} · от {req.createdByName}</p>
+                </div>
+                {req.estimatedCost ? <span className="text-sm font-black shrink-0" style={{ color: '#59301f' }}>{formatCurrency(req.estimatedCost)} сум</span> : null}
+                <ArrowRight className="w-3.5 h-3.5 shrink-0 opacity-30 group-hover:opacity-70" style={{ color: '#c89587' }} />
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Снабжение ──
+  if (role === 'snab') {
+    const inWork = requests.filter(r => r.status === 'snab_process' || r.status === 'zakupleno');
+    const totalCost = inWork.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+    const nachalnikQueue = requests.filter(r => r.status === 'nachalnik_approved' || r.status === 'finansist_approved');
+    if (!loading && inWork.length === 0 && nachalnikQueue.length === 0) return null;
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {inWork.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#edd5c8' }}>
+            <div className="px-5 py-3 flex items-center gap-3 border-b" style={{ borderColor: '#f7ede7' }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-cyan-100">
+                <Truck className="w-3.5 h-3.5 text-cyan-600" />
+              </div>
+              <div>
+                <p className="font-bold text-sm" style={{ color: '#59301f' }}>В работе — {inWork.length} заявок</p>
+                {totalCost > 0 && <p className="text-xs" style={{ color: '#a67161' }}>На закупку: {formatCurrency(totalCost)} сум</p>}
+              </div>
+            </div>
+            <div className="divide-y divide-[#f7ede7]">
+              {inWork.slice(0, 4).map(req => (
+                <Link key={req.id} to={`/requests/${req.id}`}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-[#fdf9f7] transition-colors group">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: req.status === 'zakupleno' ? '#14b8a6' : '#06b6d4' }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate group-hover:underline" style={{ color: '#59301f' }}>{req.title}</p>
+                    <p className="text-xs text-gray-400 truncate">{req.objectName}{req.preferredSupplier ? ` · ${req.preferredSupplier}` : ''}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLORS[req.status]}`}>{STATUS_LABELS[req.status]}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+        {nachalnikQueue.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 overflow-hidden" style={{ borderColor: '#edd5c8' }}>
+            <div className="px-5 py-3 flex items-center gap-3 border-b" style={{ borderColor: '#f7ede7', background: '#fdf9f7' }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#f0f9ff' }}>
+                <BarChart3 className="w-3.5 h-3.5 text-sky-600" />
+              </div>
+              <p className="font-bold text-sm" style={{ color: '#59301f' }}>Ждут запуска — {nachalnikQueue.length}</p>
+            </div>
+            <div className="divide-y divide-[#f7ede7]">
+              {nachalnikQueue.slice(0, 4).map(req => (
+                <Link key={req.id} to={`/requests/${req.id}`}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-[#fdf9f7] transition-colors group">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate group-hover:underline" style={{ color: '#59301f' }}>{req.title}</p>
+                    <p className="text-xs text-gray-400">{req.objectName}</p>
+                  </div>
+                  {req.estimatedCost ? <span className="text-xs font-bold shrink-0" style={{ color: '#a67161' }}>{formatCurrency(req.estimatedCost)} сум</span> : null}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Прораб ──
+  if (role === 'prоrab') {
+    const myOpen = active.length;
+    const myDone = requests.filter(r => r.status === 'vydano').length;
+    const myRejected = requests.filter(r => r.status === 'otkloneno').length;
+    return (
+      <div className="rounded-2xl border-2 overflow-hidden grid grid-cols-1 sm:grid-cols-3" style={{ borderColor: '#edd5c8' }}>
+        {[
+          { label: 'В работе', val: myOpen, dot: '#c89587' },
+          { label: 'Выдано',   val: myDone, dot: '#22c55e' },
+          { label: 'Отклонено', val: myRejected, dot: '#ef4444' },
+        ].map(({ label, val, dot }, i) => (
+          <div key={label} className={`px-5 py-4 flex items-center gap-4 ${i < 2 ? 'border-b sm:border-b-0 sm:border-r' : ''}`}
+            style={{ borderColor: '#edd5c8', background: '#fdf9f7' }}>
+            <div className="w-3 h-3 rounded-full shrink-0" style={{ background: dot }} />
+            <div>
+              <p className="text-2xl font-black" style={{ color: '#59301f' }}>{loading ? '—' : val}</p>
+              <p className="text-xs text-gray-500">{label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function SlaChip({ req }: { req: SkladRequest }) {
@@ -206,25 +451,37 @@ export default function DashboardPage() {
         {/* pipeline mini */}
         {!loading && requests.length > 0 && (
           <div className="px-6 pb-4">
-            <div className="rounded-xl px-4 py-3 flex items-center gap-4 overflow-x-auto"
+            <div className="rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2"
               style={{ background: 'rgba(0,0,0,0.2)' }}>
               <span className="text-xs font-semibold uppercase tracking-widest shrink-0" style={{ color: '#edd5c8' }}>
                 Воронка
               </span>
-              {PIPELINE_STATUSES.map(({ key, label, color }, idx) => {
+              {PIPELINE_STATUSES.map(({ key, label, color, desc }, idx) => {
                 const cnt = stats.pipeline[key] ?? 0;
                 return (
                   <div key={key} className="flex items-center gap-2 shrink-0">
                     {idx > 0 && <ChevronRight className="w-3 h-3 opacity-30 text-white" />}
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 rounded-full" style={{ background: cnt > 0 ? color : 'rgba(255,255,255,0.2)' }} />
-                      <span className={`text-xs ${cnt > 0 ? 'text-white font-semibold' : 'opacity-40 text-white'}`}>{label}</span>
-                      {cnt > 0 && (
-                        <span className="text-xs font-bold px-1.5 py-0.5 rounded-md" style={{ background: color, color: '#fff' }}>
-                          {cnt}
-                        </span>
-                      )}
-                    </div>
+                    {cnt > 0 ? (
+                      <Link to="/requests"
+                        title={desc}
+                        className="group/pip relative flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity">
+                        <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+                        <span className="text-xs text-white font-semibold">{label}</span>
+                        <span className="text-xs font-bold px-1.5 py-0.5 rounded-md" style={{ background: color, color: '#fff' }}>{cnt}</span>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap
+                          opacity-0 group-hover/pip:opacity-100 pointer-events-none z-20 transition-all duration-150 shadow-lg"
+                          style={{ background: color, color: '#fff', minWidth: '10rem', textAlign: 'center' }}>
+                          {desc}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent"
+                            style={{ borderBottomColor: color }} />
+                        </div>
+                      </Link>
+                    ) : (
+                      <div title={desc} className="flex items-center gap-1.5 cursor-default">
+                        <div className="w-2 h-2 rounded-full opacity-20" style={{ background: '#fff' }} />
+                        <span className="text-xs opacity-40 text-white">{label}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -365,6 +622,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ═══ ROLE BLOCK ══════════════════════════════════════════════════════ */}
+      {!loading && (
+        <RoleSpecificPanel role={currentUser?.role ?? ''} requests={requests} loading={loading} />
+      )}
+
       {/* ═══ MAIN GRID ═══════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
@@ -373,7 +635,9 @@ export default function DashboardPage() {
           <div className="px-5 py-4 flex items-center justify-between border-b" style={{ borderColor: '#f7ede7' }}>
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4" style={{ color: '#c89587' }} />
-              <h2 className="font-bold" style={{ color: '#59301f' }}>Последние заявки</h2>
+              <h2 className="font-bold" style={{ color: '#59301f' }}>
+                {currentUser?.role === 'prоrab' ? 'Мои заявки' : 'Последние заявки'}
+              </h2>
             </div>
             <Link to="/requests"
               className="text-xs font-semibold flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-[#f7ede7] transition-colors"

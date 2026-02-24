@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, Package, Users, LogOut,
-  Menu, X, ChevronRight, Shield, Bot, HardHat
+  Menu, X, ChevronRight, Shield, Bot, HardHat, BarChart3
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_LABELS } from '../utils';
@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 const navItems = [
   { to: '/', label: 'Дашборд', icon: LayoutDashboard, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
   { to: '/requests', label: 'Заявки', icon: FileText, roles: ['prоrab','sklad','nachalnik','finansist','snab','admin'] },
+  { to: '/analytics', label: 'Аналитика', icon: BarChart3, roles: ['nachalnik','finansist','snab','admin'] },
   { to: '/warehouse', label: 'Склад', icon: Package, roles: ['sklad','admin','nachalnik','snab'] },
   { to: '/objects', label: 'Объекты', icon: HardHat, roles: ['admin','nachalnik','prоrab'] },
   { to: '/users', label: 'Пользователи', icon: Users, roles: ['admin'] },

@@ -4,7 +4,7 @@ import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestor
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { SkladRequest, RequestStatus, RequestType, UrgencyLevel } from '../types';
-import { Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User, ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box } from 'lucide-react';
+import { Plus, Search, Filter, FileText, ChevronDown, X, Clock, Bell, Building2, User, ArrowRightLeft, Package, Wrench, Cpu, Briefcase, Box, LayoutList, LayoutGrid, Download } from 'lucide-react';
 import {
   formatDate, formatDateShort, STATUS_LABELS, STATUS_COLORS,
   REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS,
@@ -42,6 +42,7 @@ export default function RequestsPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
   useEffect(() => {
     if (!currentUser) return;
@@ -103,6 +104,36 @@ export default function RequestsPage() {
   const isNeedAction = (r: SkladRequest) =>
     !!currentUser && needsMyAction(r.status, currentUser.role, r.chain ?? 'full');
 
+  const KANBAN_COLUMNS = [
+    { id: 'novaya',   label: 'Новые',        statuses: ['novaya'] as RequestStatus[],                                                             color: '#3b82f6', bg: '#eff6ff' },
+    { id: 'sklad',    label: 'У склада',     statuses: ['sklad_review','sklad_partial'] as RequestStatus[],                                        color: '#f59e0b', bg: '#fffbeb' },
+    { id: 'approval', label: 'Согласование', statuses: ['nachalnik_review','nachalnik_approved','finansist_review','finansist_approved'] as RequestStatus[], color: '#8b5cf6', bg: '#f5f3ff' },
+    { id: 'supply',   label: 'Закупка',      statuses: ['snab_process','zakupleno'] as RequestStatus[],                                              color: '#06b6d4', bg: '#ecfeff' },
+    { id: 'done',     label: 'Завершено',    statuses: ['vydano','otkloneno'] as RequestStatus[],                                                    color: '#22c55e', bg: '#f0fdf4' },
+  ];
+
+  const exportCSV = () => {
+    const headers = ['№','Название','Объект','Прораб','Тип','Статус','Срочность','Создана','К дате','Смета (сум)'];
+    const rows = filtered.map(r => [
+      r.number,
+      `"${r.title.replace(/"/g,'""')}"`,
+      `"${r.objectName.replace(/"/g,'""')}"`,
+      `"${r.createdByName.replace(/"/g,'""')}"`,
+      REQUEST_TYPE_LABELS[r.requestType ?? 'other'],
+      STATUS_LABELS[r.status],
+      URGENCY_LABELS[r.urgencyLevel ?? 'normal'],
+      r.createdAt.slice(0,10),
+      r.plannedDate ?? '',
+      r.estimatedCost ?? '',
+    ]);
+    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob(['\ufeff'+csv], { type:'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `заявки_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
   const quickButtons: { id: QuickFilter; label: string; count?: number; color: string }[] = [
     { id: 'all', label: 'Все', color: 'bg-gray-100 text-gray-700' },
     { id: 'need_action', label: 'Мои действия', count: myActionCount, color: 'bg-yellow-100 text-yellow-800' },
@@ -128,21 +159,44 @@ export default function RequestsPage() {
   return (
     <div className="p-4 md:p-6 space-y-4">
       {/* Заголовок */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Заявки</h1>
           <p className="text-sm text-gray-500">{requests.length} всего</p>
         </div>
-        {(currentUser?.role === 'prоrab' || currentUser?.role === 'admin') && (
-          <Link to="/requests/new"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm text-white transition-colors"
-            style={{ background: '#c89587' }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#a67161')}
-            onMouseLeave={e => (e.currentTarget.style.background = '#c89587')}>
-            <Plus className="w-4 h-4" />
-            Новая заявка
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex border border-gray-200 rounded-xl overflow-hidden">
+            <button onClick={() => setViewMode('list')}
+              className={`p-2 transition-colors ${viewMode === 'list' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+              style={viewMode === 'list' ? { background: '#c89587' } : {}} title="Список">
+              <LayoutList className="w-4 h-4" />
+            </button>
+            <button onClick={() => setViewMode('kanban')}
+              className={`p-2 transition-colors ${viewMode === 'kanban' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+              style={viewMode === 'kanban' ? { background: '#c89587' } : {}} title="Канбан">
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
+          {/* Export */}
+          {filtered.length > 0 && (
+            <button onClick={exportCSV} title="Скачать CSV"
+              className="p-2 border border-gray-200 rounded-xl text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+          {(currentUser?.role === 'prоrab' || currentUser?.role === 'admin') && (
+            <Link to="/requests/new"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm text-white transition-colors"
+              style={{ background: '#c89587' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#a67161')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#c89587')}>
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Новая заявка</span>
+              <span className="sm:hidden">+</span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Быстрые фильтры */}
@@ -258,12 +312,88 @@ export default function RequestsPage() {
         )}
       </div>
 
-      {/* Список */}
-      {loading ? (
+      {/* ── КАНБАН ── */}
+      {!loading && viewMode === 'kanban' && (
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max">
+            {KANBAN_COLUMNS.map(col => {
+              const colCards = filtered.filter(r => col.statuses.includes(r.status));
+              return (
+                <div key={col.id} className="w-72 flex flex-col gap-2">
+                  {/* Column header */}
+                  <div className="flex items-center justify-between px-3 py-2 rounded-xl"
+                    style={{ background: col.bg }}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ background: col.color }} />
+                      <span className="text-sm font-bold" style={{ color: col.color }}>{col.label}</span>
+                    </div>
+                    <span className="text-xs font-black px-1.5 py-0.5 rounded-full" style={{ background: col.color, color:'#fff' }}>
+                      {colCards.length}
+                    </span>
+                  </div>
+                  {/* Cards */}
+                  <div className="flex flex-col gap-2">
+                    {colCards.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-gray-300 border-2 border-dashed border-gray-200 rounded-xl">
+                        Пусто
+                      </div>
+                    ) : colCards.map(req => {
+                      const action = isNeedAction(req);
+                      const isUrgent = req.urgencyLevel === 'critical' || req.urgencyLevel === 'high';
+                      const TI = TYPE_ICONS[req.requestType ?? 'other'];
+                      const TC = TYPE_COLORS[req.requestType ?? 'other'];
+                      return (
+                        <Link key={req.id} to={`/requests/${req.id}`}
+                          className={`block bg-white rounded-xl border p-3 hover:shadow-md transition-all ${
+                            action ? 'border-yellow-400' : isUrgent ? 'border-orange-300' : 'border-gray-200 hover:border-gray-300'
+                          }`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${TC.bg}`}>
+                              <TI className={`w-3 h-3 ${TC.icon}`} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-400">#{req.number}</span>
+                            {action && <Bell className="w-3 h-3 text-yellow-500 ml-auto" />}
+                          </div>
+                          <p className="text-sm font-semibold text-gray-900 leading-tight mb-1.5 line-clamp-2">{req.title}</p>
+                          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
+                            <Building2 className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{req.objectName}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-400">{req.createdByName.split(' ')[0]}</span>
+                            <div className="flex items-center gap-1">
+                              {isUrgent && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${URGENCY_COLORS[req.urgencyLevel ?? 'normal']}`}>
+                                  {URGENCY_LABELS[req.urgencyLevel ?? 'normal'].split(' ')[0]}
+                                </span>
+                              )}
+                              {req.estimatedCost ? (
+                                <span className="text-xs text-gray-400">{(req.estimatedCost/1000).toFixed(0)}к</span>
+                              ) : null}
+                            </div>
+                          </div>
+                          {req.plannedDate && (
+                            <div className="flex items-center gap-1 text-xs text-gray-400 mt-1.5 pt-1.5 border-t border-gray-100">
+                              <Clock className="w-2.5 h-2.5" /> к {req.plannedDate}
+                            </div>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── СПИСОК ── */}
+      {viewMode === 'list' && loading ? (
         <div className="space-y-2">
           {[1,2,3,4].map(i => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : viewMode === 'list' && filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-200 py-16 text-center text-gray-400">
           <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="font-medium">Заявок не найдено</p>
@@ -274,7 +404,7 @@ export default function RequestsPage() {
             </button>
           )}
         </div>
-      ) : (
+      ) : viewMode === 'list' ? (
         <div className="space-y-2">
           {filtered.map(req => {
             const action = isNeedAction(req);
@@ -342,7 +472,7 @@ export default function RequestsPage() {
             Показано {filtered.length} из {requests.length} заявок
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import WarehousePage from './pages/WarehousePage';
 import UsersPage from './pages/UsersPage';
 import ObjectsPage from './pages/ObjectsPage';
 import TelegramSettingsPage from './pages/TelegramSettingsPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 
 function AppRoutes() {
   const { currentUser, loading } = useAuth();
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route path="/requests/new" element={<NewRequestPage />} />
         <Route path="/requests/:id" element={<RequestDetailPage />} />
         <Route path="/warehouse" element={<WarehousePage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/objects" element={<ObjectsPage />} />
         {currentUser.role === 'admin' && (
           <Route path="/users" element={<UsersPage />} />

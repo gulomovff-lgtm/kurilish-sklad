@@ -270,7 +270,7 @@ function KanbanCard({
 
       {/* Clickable body → detail page */}
       <Link to={`/requests/${req.id}`} className="block">
-        <div className={`px-3 ${compact ? 'py-2' : 'pt-3 pb-2'}`}>
+        <div className={`px-3 ${compact ? 'py-1.5' : 'pt-2.5 pb-2'}`}>
           {/* Row 1: type icon + number + badge */}
           <div className="flex items-center gap-1.5 mb-1.5">
             <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${TC.bg}`}>
@@ -296,12 +296,10 @@ function KanbanCard({
             {highlightText(req.title, search)}
           </p>
 
-          {!compact && (
-            <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
-              <Building2 className="w-3 h-3 shrink-0" />
-              <span className="truncate">{highlightText(req.objectName, search)}</span>
-            </div>
-          )}
+          <div className={`flex items-center gap-1 text-xs text-gray-400 ${compact ? 'mb-1' : 'mb-2'}`}>
+            <Building2 className="w-3 h-3 shrink-0" />
+            <span className="truncate">{highlightText(req.objectName, search)}</span>
+          </div>
 
           {/* Footer: avatar + cost + urgency */}
           <div className="flex items-center justify-between gap-1">
@@ -437,6 +435,7 @@ function KanbanCard({
 // ─── KanbanBoard ──────────────────────────────────────────────────────────────
 function KanbanBoard({
   filtered, isNeedAction, search, userRole, currentUserUid, currentUserName, allRequests,
+  compact, groupByObj, sortBy, showDone,
 }: {
   filtered: SkladRequest[];
   isNeedAction: (r: SkladRequest) => boolean;
@@ -445,22 +444,14 @@ function KanbanBoard({
   currentUserUid: string;
   currentUserName: string;
   allRequests: SkladRequest[];
+  compact: boolean;
+  groupByObj: boolean;
+  sortBy: 'urgency' | 'date' | 'cost' | 'updated';
+  showDone: boolean;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [compact, setCompact] = useState(false);
-  const [groupByObj, setGroupByObj] = useState(false);
-  const [sortBy, setSortBy] = useState<'urgency' | 'date' | 'cost' | 'updated'>('urgency');
-  const [showDone, setShowDone] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showPOModal, setShowPOModal] = useState(false);
-
-  // Summary
-  const totalCost = filtered.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
-  const actionCount = filtered.filter(r => isNeedAction(r)).length;
-  const overdueCount = filtered.filter(r => {
-    const today = new Date().toISOString().slice(0, 10);
-    return r.plannedDate && r.plannedDate < today && r.status !== 'vydano' && r.status !== 'otkloneno';
-  }).length;
 
   const toggleCol = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -493,109 +484,8 @@ function KanbanBoard({
     return names;
   }, [filtered]);
 
-  const SORT_OPTIONS: { id: typeof sortBy; label: string }[] = [
-    { id: 'urgency', label: 'По срочности' },
-    { id: 'date',    label: 'По дате' },
-    { id: 'cost',    label: 'По сумме' },
-    { id: 'updated', label: 'По обновлению' },
-  ];
-
   return (
-    <div className="space-y-3">
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 flex-wrap bg-white rounded-2xl border border-gray-100 px-4 py-3 shadow-sm">
-        {/* Stats */}
-        <div className="flex items-center gap-4 flex-1 flex-wrap">
-          <div className="flex items-center gap-1.5 text-sm">
-            <FileText className="w-4 h-4 text-gray-400" />
-            <span className="font-bold text-gray-700">{filtered.length}</span>
-            <span className="text-gray-400 hidden sm:inline">заявок</span>
-          </div>
-          {actionCount > 0 && (
-            <div className="flex items-center gap-1.5 text-sm">
-              <Bell className="w-4 h-4 text-yellow-500" />
-              <span className="font-bold text-yellow-600">{actionCount}</span>
-              <span className="text-gray-400 hidden sm:inline">действий</span>
-            </div>
-          )}
-          {overdueCount > 0 && (
-            <div className="flex items-center gap-1.5 text-sm">
-              <AlertTriangle className="w-4 h-4 text-red-400" />
-              <span className="font-bold text-red-500">{overdueCount}</span>
-              <span className="text-gray-400 hidden sm:inline">просрочено</span>
-            </div>
-          )}
-          {totalCost > 0 && (
-            <div className="flex items-center gap-1.5 text-sm">
-              <DollarSign className="w-4 h-4 text-gray-400" />
-              <span className="font-bold text-gray-700">{formatK(totalCost)}</span>
-              <span className="text-gray-400 hidden sm:inline">сум</span>
-            </div>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Sort */}
-          <div className="relative">
-            <div className="group flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 cursor-pointer hover:bg-gray-50 transition-colors">
-              <ArrowUpDown className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{SORT_OPTIONS.find(s => s.id === sortBy)?.label}</span>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full"
-              >
-                {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Group toggle */}
-          <button
-            onClick={() => setGroupByObj(!groupByObj)}
-            title={groupByObj ? 'Группировка по объекту (вкл)' : 'Группировка по объекту (выкл)'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
-              groupByObj ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}>
-            <Layers className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{groupByObj ? 'По объектам' : 'По объектам'}</span>
-          </button>
-
-          {/* Show done */}
-          <button
-            onClick={() => setShowDone(!showDone)}
-            title={showDone ? 'Скрыть завершённые' : 'Показать завершённые'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
-              showDone ? 'border-green-300 bg-green-50 text-green-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-            }`}>
-            <CircleCheck className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{showDone ? 'С завершёнными' : 'Без завершённых'}</span>
-          </button>
-
-          {/* Compact */}
-          <button
-            onClick={() => setCompact(!compact)}
-            title={compact ? 'Компактный режим (вкл)' : 'Компактный режим'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
-              compact ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}>
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{compact ? 'Компакт' : 'Компакт'}</span>
-          </button>
-
-          {/* Expand all collapsed */}
-          {Object.values(collapsed).some(Boolean) && (
-            <button
-              onClick={() => setCollapsed({})}
-              title="Развернуть все"
-              className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition-colors">
-              <RotateCcw className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-      </div>
-
+    <div>
       {/* ── Board ── */}
       <div className="overflow-x-auto pb-4">
         {!groupByObj ? (
@@ -822,10 +712,28 @@ export default function RequestsPage() {
     return s === 'list' ? 'list' : 'kanban';
   });
 
+  // ── Kanban view controls (hoisted from KanbanBoard) ───────────────────────
+  const [compact,     setCompact]     = useState(true);
+  const [groupByObj,  setGroupByObj]  = useState(false);
+  const [sortBy,      setSortBy]      = useState<'urgency' | 'date' | 'cost' | 'updated'>('urgency');
+  const [showDone,    setShowDone]    = useState(true);
+  const [showViewParams, setShowViewParams] = useState(false);
+  const viewParamsRef = useRef<HTMLDivElement>(null);
+
   // ── Persist state in sessionStorage ───────────────────────────────────────
   useEffect(() => { sessionStorage.setItem('req_viewMode', viewMode); }, [viewMode]);
   useEffect(() => { sessionStorage.setItem('req_quickFilter', quickFilter); }, [quickFilter]);
   useEffect(() => { sessionStorage.setItem('req_search', search); }, [search]);
+
+  // ── Close view-params dropdown on outside click ────────────────────────────
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (viewParamsRef.current && !viewParamsRef.current.contains(e.target as Node))
+        setShowViewParams(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
 
   // ── Scroll restoration when navigating back ────────────────────────────────
   useEffect(() => {
@@ -898,6 +806,12 @@ export default function RequestsPage() {
     r.status !== 'vydano' && r.status !== 'otkloneno'
   ).length;
 
+  const totalCost  = filtered.reduce((s, r) => s + (r.estimatedCost ?? 0), 0);
+  const overdueCount = filtered.filter(r => {
+    const today = new Date().toISOString().slice(0, 10);
+    return r.plannedDate && r.plannedDate < today && r.status !== 'vydano' && r.status !== 'otkloneno';
+  }).length;
+
   const isNeedAction = (r: SkladRequest) =>
     !!currentUser && needsMyAction(r.status, currentUser.role, r.chain ?? 'full');
 
@@ -946,105 +860,167 @@ export default function RequestsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      {/* Заголовок */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Заявки</h1>
-          <p className="text-sm text-gray-500">{requests.length} всего</p>
+    <div className="p-3 md:p-5 space-y-2">
+
+      {/* ── Строка 1: заголовок + поиск + действия ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Left: title + stats */}
+        <div className="flex items-center gap-2 min-w-0 shrink-0">
+          <h1 className="text-lg font-bold text-gray-900">Заявки</h1>
+          <div className="flex items-center gap-1.5 text-sm text-gray-400 flex-wrap">
+            <span>{filtered.length} заявок</span>
+            {totalCost > 0 && <><span className="opacity-40">·</span><span>{formatK(totalCost)} сум</span></>}
+            {overdueCount > 0 && <><span className="opacity-40">·</span><span className="text-red-400 font-medium">{overdueCount} просроч.</span></>}
+            {myActionCount > 0 && <><span className="opacity-40">·</span><span className="text-yellow-500 font-medium">🔔 {myActionCount}</span></>}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
+
+        {/* Center: search */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск: номер, название, объект..."
+            className="w-full pl-8 pr-8 py-1.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c89587] bg-white"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Right: view toggle + export + new */}
+        <div className="flex items-center gap-1.5 ml-auto shrink-0">
           <div className="flex border border-gray-200 rounded-xl overflow-hidden">
             <button onClick={() => setViewMode('list')}
-              className={`p-2 transition-colors ${viewMode === 'list' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+              className={`p-1.5 transition-colors ${viewMode === 'list' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
               style={viewMode === 'list' ? { background: '#c89587' } : {}} title="Список">
               <LayoutList className="w-4 h-4" />
             </button>
             <button onClick={() => setViewMode('kanban')}
-              className={`p-2 transition-colors ${viewMode === 'kanban' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
+              className={`p-1.5 transition-colors ${viewMode === 'kanban' ? 'text-white' : 'text-gray-400 hover:bg-gray-50'}`}
               style={viewMode === 'kanban' ? { background: '#c89587' } : {}} title="Канбан">
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
-          {/* Export */}
           {filtered.length > 0 && (
             <button onClick={exportCSV} title="Скачать CSV"
-              className="p-2 border border-gray-200 rounded-xl text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+              className="p-1.5 border border-gray-200 rounded-xl text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors">
               <Download className="w-4 h-4" />
             </button>
           )}
           {(currentUser?.role === 'prоrab' || currentUser?.role === 'admin') && (
             <Link to="/requests/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm text-white transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-sm text-white transition-colors whitespace-nowrap"
               style={{ background: '#c89587' }}
               onMouseEnter={e => (e.currentTarget.style.background = '#a67161')}
               onMouseLeave={e => (e.currentTarget.style.background = '#c89587')}>
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Новая заявка</span>
-              <span className="sm:hidden">+</span>
             </Link>
           )}
         </div>
       </div>
 
-      {/* Быстрые фильтры */}
-      <div className="flex gap-2 flex-wrap">
-        {quickButtons.map(btn => (
-          <button
-            key={btn.id}
-            onClick={() => setQuickFilter(btn.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all border-2 ${
-              quickFilter === btn.id
-                ? `${btn.color} border-current`
-                : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-            }`}
-          >
-            {btn.label}
-            {btn.count !== undefined && btn.count > 0 && (
-              <span className="bg-current bg-opacity-20 rounded-full px-1.5 py-0.5 text-xs font-bold min-w-[20px] text-center">
-                {btn.count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Поиск и фильтры */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Поиск: номер, название, объект, прораб..."
-              className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className={`flex items-center gap-1.5 px-3 py-2 border rounded-xl text-sm transition-colors ${
-              showAdvanced || hasActiveFilters
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            Фильтры
-            {hasActiveFilters && <span className="bg-blue-600 text-white rounded-full w-4 h-4 text-xs flex items-center justify-center">!</span>}
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-          </button>
+      {/* ── Строка 2: быстрые фильтры + параметры вида ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Quick filters */}
+        <div className="flex gap-1.5 flex-wrap flex-1">
+          {quickButtons.map(btn => (
+            <button
+              key={btn.id}
+              onClick={() => setQuickFilter(btn.id)}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                quickFilter === btn.id
+                  ? `${btn.color} border-current`
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              {btn.label}
+              {btn.count !== undefined && btn.count > 0 && (
+                <span className="rounded-full px-1 py-0.5 text-[10px] font-bold min-w-[16px] text-center bg-current bg-opacity-20">
+                  {btn.count}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
-        {showAdvanced && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-gray-100">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* View params dropdown */}
+          <div className="relative" ref={viewParamsRef}>
+            <button
+              onClick={() => setShowViewParams(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-xs font-medium transition-colors ${
+                showViewParams ? 'border-[#c89587] bg-[#fdf6f3] text-[#a67161]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Параметры вида</span>
+              <ChevronDown className={`w-3 h-3 transition-transform ${showViewParams ? 'rotate-180' : ''}`} />
+            </button>
+            {showViewParams && (
+              <div className="absolute right-0 top-full mt-1.5 bg-white rounded-2xl border border-gray-200 shadow-xl z-30 p-3 w-56 space-y-2.5">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Сортировка</p>
+                  <div className="space-y-0.5">
+                    {([
+                      { id: 'urgency', label: 'По срочности' },
+                      { id: 'date',    label: 'По дате' },
+                      { id: 'cost',    label: 'По сумме' },
+                      { id: 'updated', label: 'По обновлению' },
+                    ] as const).map(o => (
+                      <button key={o.id} onClick={() => setSortBy(o.id)}
+                        className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg transition-colors flex items-center justify-between ${
+                          sortBy === o.id ? 'bg-[#fdf6f3] text-[#c89587] font-semibold' : 'text-gray-600 hover:bg-gray-50'
+                        }`}>
+                        {o.label}
+                        {sortBy === o.id && <CheckCircle2 className="w-3.5 h-3.5 text-[#c89587]" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="border-t border-gray-100 pt-2 space-y-1">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Отображение</p>
+                  {[
+                    { val: groupByObj, set: setGroupByObj, label: 'По объектам (swimlanes)' },
+                    { val: showDone,   set: setShowDone,   label: 'Показывать завершённые' },
+                    { val: compact,    set: setCompact,    label: 'Компактные карточки' },
+                  ].map(({ val, set, label }) => (
+                    <button key={label} onClick={() => set(!val)}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                      <span>{label}</span>
+                      <div className={`w-7 h-4 rounded-full transition-colors relative ${val ? 'bg-[#c89587]' : 'bg-gray-200'}`}>
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${val ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Фильтры */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-xs font-medium transition-colors ${
+              showAdvanced || hasActiveFilters ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Фильтры
+            {hasActiveFilters && <span className="bg-blue-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold">!</span>}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Расширенные фильтры ── */}
+      {showAdvanced && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Статус</label>
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as RequestStatus | 'all')}
@@ -1098,8 +1074,8 @@ export default function RequestsPage() {
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── КАНБАН ── */}
       {!loading && viewMode === 'kanban' && (
@@ -1111,8 +1087,13 @@ export default function RequestsPage() {
           currentUserUid={currentUser?.uid ?? ''}
           currentUserName={currentUser?.displayName ?? ''}
           allRequests={requests}
+          compact={compact}
+          groupByObj={groupByObj}
+          sortBy={sortBy}
+          showDone={showDone}
         />
       )}
+
 
       {/* ── СПИСОК ── */}
       {viewMode === 'list' && loading ? (

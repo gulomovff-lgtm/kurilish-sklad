@@ -251,6 +251,36 @@ export interface Translations {
   spec_total:        string;
   spec_note:         string;
   add_row:           string;
+
+  // ── Канбан-колонки ───────────────────────────────────────────────────
+  col_new:           string;
+  col_sklad:         string;
+  col_approval:      string;
+  col_finance:       string;
+  col_supply:        string;
+  col_issued:        string;
+  col_closed:        string;
+
+  // ── Доп. сортировка / вид ────────────────────────────────────────
+  sort_cost:         string;
+  sort_updated:      string;
+  display_options:   string;
+  search_placeholder: string;
+  filter_open:       string;
+  filter_issued:     string;
+  pipeline:          string;
+  actions_required:  string;
+  per_cent_done:     string;
+  sum_label:         string;
+  no_requests_yet:   string;
+  by_type:           string;
+  issued_this_month: string;
+  total_issued:      string;
+  urgent_requests:   string;
+  active_cost_label: string;
+  overdue_short:     string;
+  create_first:      string;
+  all_requests:      string;
 }
 
 // ─── РУССКИЙ ─────────────────────────────────────────────────────────────────
@@ -479,6 +509,34 @@ export const ru: Translations = {
   spec_total:        'Сумма',
   spec_note:         'Примечание',
   add_row:           'Добавить строку',
+
+  col_new:           'Новые',
+  col_sklad:         'У склада',
+  col_approval:      'Согласование',
+  col_finance:       'Финансы',
+  col_supply:        'Закупка',
+  col_issued:        'У прораба',
+  col_closed:        'Закрыто',
+
+  sort_cost:         'По сумме',
+  sort_updated:      'По обновлению',
+  display_options:   'Отображение',
+  search_placeholder: 'Поиск: номер, название, объект...',
+  filter_open:       'В работе',
+  filter_issued:     'Выданные',
+  pipeline:          'Воронка',
+  actions_required:  'Требуют вашего действия',
+  per_cent_done:     '% завершено',
+  sum_label:         'сум',
+  no_requests_yet:   'Заявок ещё нет',
+  by_type:           'По типам',
+  issued_this_month: 'Выдано в этом месяце',
+  total_issued:      'Всего выдано',
+  urgent_requests:   'Срочных заявок',
+  active_cost_label: 'Сумма активных',
+  overdue_short:     'просроч.',
+  create_first:      'Создать первую',
+  all_requests:      'Все заявки',
 };
 
 // ─── УЗБЕКСКИЙ ───────────────────────────────────────────────────────────────
@@ -707,6 +765,34 @@ export const uz: Translations = {
   spec_total:        'Jami',
   spec_note:         'Izoh',
   add_row:           'Qator qo\'shish',
+
+  col_new:           'Yangilar',
+  col_sklad:         'Omborxona',
+  col_approval:      'Kelishuv',
+  col_finance:       'Moliya',
+  col_supply:        'Xarid',
+  col_issued:        'Prorabda',
+  col_closed:        'Yopildi',
+
+  sort_cost:         'Summa bo\'yicha',
+  sort_updated:      'Yangilanish bo\'yicha',
+  display_options:   'Ko\'rinish',
+  search_placeholder: 'Qidiruv: raqam, nom, ob\'yekt...',
+  filter_open:       'Jarayonda',
+  filter_issued:     'Berilganlar',
+  pipeline:          'Quvur',
+  actions_required:  'Sizning vazifangiz',
+  per_cent_done:     '% yakunlangan',
+  sum_label:         'so\'m',
+  no_requests_yet:   'Arizalar yo\'q hali',
+  by_type:           'Turlar bo\'yicha',
+  issued_this_month: 'Bu oy berildi',
+  total_issued:      'Jami berildi',
+  urgent_requests:   'Shoshilinch arizalar',
+  active_cost_label: 'Faol arizalar summasi',
+  overdue_short:     'muddati o\'tgan',
+  create_first:      'Birinchisini yaratish',
+  all_requests:      'Barcha arizalar',
 };
 
 export const TRANSLATIONS: Record<Lang, Translations> = { ru, uz };

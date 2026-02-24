@@ -18,6 +18,7 @@ import {
   needsMyAction, getNextStatuses, getChainSteps,
   MATERIAL_TAGS, SLA_HOURS,
 } from '../utils';
+import { useLang } from '../contexts/LangContext';
 import { useLabels } from '../hooks/useLabels';
 import toast from 'react-hot-toast';
 import CreatePurchaseOrderModal from '../components/CreatePurchaseOrderModal';
@@ -457,6 +458,16 @@ function KanbanBoard({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showPOModal, setShowPOModal] = useState(false);
+  const { t: tl } = useLang();
+  const KANBAN_LABELS: Record<string, string> = {
+    novaya:    tl.col_new,
+    sklad:     tl.col_sklad,
+    nachalnik: tl.col_approval,
+    finansist: tl.col_finance,
+    supply:    tl.col_supply,
+    vydano:    tl.col_issued,
+    done:      tl.col_closed,
+  };
 
   const toggleCol = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -513,7 +524,7 @@ function KanbanBoard({
                       <div className="w-2.5 h-2.5 rounded-full" style={{ background: col.color }} />
                       <span className="text-xs font-black" style={{ color: col.color,
                         writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}>
-                        {col.label}
+                        {KANBAN_LABELS[col.id] ?? col.label}
                       </span>
                       <span className="text-xs font-black px-1 py-0.5 rounded-md text-white" style={{ background: col.color }}>
                         {cards.length}
@@ -532,7 +543,7 @@ function KanbanBoard({
                       <span className="text-base">{col.icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-white">{col.label}</span>
+                          <span className="text-sm font-bold text-white">{KANBAN_LABELS[col.id] ?? col.label}</span>
                           <span className={`text-xs font-black px-2 py-0.5 rounded-full bg-white/20 text-white ${
                             overWip ? 'animate-pulse !bg-red-600' : ''
                           }`}>
@@ -603,7 +614,7 @@ function KanbanBoard({
               {visibleCols.map(col => (
                 <div key={col.id} className="flex-1 rounded-xl px-3 py-2 flex items-center gap-2" style={{ background: col.bg }}>
                   <span>{col.icon}</span>
-                  <span className="text-xs font-bold" style={{ color: col.color }}>{col.label}</span>
+                  <span className="text-xs font-bold" style={{ color: col.color }}>{KANBAN_LABELS[col.id] ?? col.label}</span>
                   <span className="ml-auto text-xs font-black text-white px-1.5 py-0.5 rounded-full" style={{ background: col.color }}>
                     {filtered.filter(r => col.statuses.includes(r.status)).length}
                   </span>
@@ -698,6 +709,7 @@ export default function RequestsPage() {
   const { currentUser } = useAuth();
   const { canViewFinancial } = usePermission();
   const { STATUS_LABELS, CHAIN_LABELS, TYPE_LABELS, URGENCY_LABELS } = useLabels();
+  const { t: tr } = useLang();
   const location = useLocation();
   const [requests, setRequests] = useState<SkladRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -845,12 +857,12 @@ export default function RequestsPage() {
   };
 
   const quickButtons: { id: QuickFilter; label: string; count?: number; color: string }[] = [
-    { id: 'all', label: 'Все', color: 'bg-gray-100 text-gray-700' },
-    { id: 'need_action', label: 'Мои действия', count: myActionCount, color: 'bg-yellow-100 text-yellow-800' },
-    { id: 'urgent', label: 'Срочные', count: urgentCount, color: 'bg-red-100 text-red-800' },
-    { id: 'mine', label: 'Мои заявки', color: 'bg-blue-100 text-blue-800' },
-    { id: 'open', label: 'В работе', color: 'bg-green-100 text-green-800' },
-    { id: 'done', label: 'Выданные', color: 'bg-gray-100 text-gray-600' },
+    { id: 'all',         label: tr.filter_all,       color: 'bg-gray-100 text-gray-700' },
+    { id: 'need_action', label: tr.filter_my_action,  count: myActionCount, color: 'bg-yellow-100 text-yellow-800' },
+    { id: 'urgent',      label: tr.filter_urgent,     count: urgentCount, color: 'bg-red-100 text-red-800' },
+    { id: 'mine',        label: tr.filter_my,         color: 'bg-blue-100 text-blue-800' },
+    { id: 'open',        label: tr.filter_open,       color: 'bg-green-100 text-green-800' },
+    { id: 'done',        label: tr.filter_issued,     color: 'bg-gray-100 text-gray-600' },
   ];
 
   const hasActiveFilters = filterStatus !== 'all' || filterType !== 'all' || filterUrgency !== 'all' || filterObject || dateFrom || dateTo;
@@ -889,7 +901,7 @@ export default function RequestsPage() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Поиск: номер, название, объект..."
+            placeholder={tr.search_placeholder}
             className="w-full pl-8 pr-8 py-1.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#c89587] bg-white"
           />
           {search && (
@@ -966,19 +978,19 @@ export default function RequestsPage() {
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Параметры вида</span>
+              <span className="hidden sm:inline">{tr.view_params}</span>
               <ChevronDown className={`w-3 h-3 transition-transform ${showViewParams ? 'rotate-180' : ''}`} />
             </button>
             {showViewParams && (
               <div className="absolute right-0 top-full mt-1.5 bg-white rounded-2xl border border-gray-200 shadow-xl z-30 p-3 w-56 space-y-2.5">
                 <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Сортировка</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">{tr.sort_by}</p>
                   <div className="space-y-0.5">
                     {([
-                      { id: 'urgency', label: 'По срочности' },
-                      { id: 'date',    label: 'По дате' },
-                      { id: 'cost',    label: 'По сумме' },
-                      { id: 'updated', label: 'По обновлению' },
+                      { id: 'urgency', label: tr.sort_urgency },
+                      { id: 'date',    label: tr.sort_date },
+                      { id: 'cost',    label: tr.sort_cost },
+                      { id: 'updated', label: tr.sort_updated },
                     ] as const).map(o => (
                       <button key={o.id} onClick={() => setSortBy(o.id)}
                         className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg transition-colors flex items-center justify-between ${
@@ -991,11 +1003,11 @@ export default function RequestsPage() {
                   </div>
                 </div>
                 <div className="border-t border-gray-100 pt-2 space-y-1">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Отображение</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">{tr.display_options}</p>
                   {[
-                    { val: groupByObj, set: setGroupByObj, label: 'По объектам (swimlanes)' },
-                    { val: showDone,   set: setShowDone,   label: 'Показывать завершённые' },
-                    { val: compact,    set: setCompact,    label: 'Компактные карточки' },
+                    { val: groupByObj, set: setGroupByObj, label: tr.group_by_object },
+                    { val: showDone,   set: setShowDone,   label: tr.show_done },
+                    { val: compact,    set: setCompact,    label: tr.compact_view },
                   ].map(({ val, set, label }) => (
                     <button key={label} onClick={() => set(!val)}
                       className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
@@ -1018,7 +1030,7 @@ export default function RequestsPage() {
             }`}
           >
             <Filter className="w-3.5 h-3.5" />
-            Фильтры
+            {tr.filters}
             {hasActiveFilters && <span className="bg-blue-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center font-bold">!</span>}
           </button>
         </div>

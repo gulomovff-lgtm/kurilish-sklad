@@ -12,10 +12,11 @@ import {
   ShieldCheck, Truck, HardHat,
 } from 'lucide-react';
 import {
-  formatDate, STATUS_LABELS, STATUS_COLORS,
-  needsMyAction, URGENCY_BADGE, URGENCY_COLORS, URGENCY_LABELS,
-  REQUEST_TYPE_LABELS, ROLE_LABELS,
+  formatDate, STATUS_COLORS,
+  needsMyAction, URGENCY_BADGE, URGENCY_COLORS,
 } from '../utils';
+import { useLang } from '../contexts/LangContext';
+import { useLabels } from '../hooks/useLabels';
 
 // ─── константы ────────────────────────────────────────────────────────────────
 const TYPE_ICONS  = { materials: Package, tools: Wrench, equipment: Cpu, services: Briefcase, other: Box } as const;
@@ -103,6 +104,8 @@ function StatusBar({ active, done, rejected }: { active: number; done: number; r
 function RoleSpecificPanel({
   role, requests, loading,
 }: { role: string; requests: SkladRequest[]; loading: boolean }) {
+  const { t } = useLang();
+  const { STATUS_LABELS, ROLE_LABELS, URGENCY_LABELS } = useLabels();
   const active = requests.filter(r => r.status !== 'vydano' && r.status !== 'otkloneno');
 
   // ── Склад ──
@@ -121,7 +124,7 @@ function RoleSpecificPanel({
             <p className="text-xs" style={{ color: '#a67161' }}>{totalItems} позиций к выдаче</p>
           </div>
           <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
-            Все <ArrowRight className="w-3 h-3" />
+            {t.filter_all} <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
         {loading ? (
@@ -172,7 +175,7 @@ function RoleSpecificPanel({
               </div>
               <p className="font-bold text-sm" style={{ color: '#59301f' }}>Ожидают одобрения — {toApprove.length}</p>
               <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
-                Все <ArrowRight className="w-3 h-3" />
+                {t.filter_all} <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="divide-y divide-[#f7ede7]">
@@ -362,6 +365,15 @@ function SlaChip({ req }: { req: SkladRequest }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function DashboardPage() {
   const { currentUser } = useAuth();
+  const { t } = useLang();
+  const { STATUS_LABELS, ROLE_LABELS, URGENCY_LABELS, TYPE_LABELS } = useLabels();
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 6)  return t.greeting_night;
+    if (h < 12) return t.greeting_morning;
+    if (h < 18) return t.greeting_day;
+    return t.greeting_evening;
+  })();
   const [requests, setRequests] = useState<SkladRequest[]>([]);
   const [loading, setLoading]   = useState(true);
 
@@ -418,7 +430,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <p className="text-sm font-medium" style={{ color: '#edd5c8' }}>
-                {getRuGreeting()} — {ROLE_LABELS[currentUser?.role ?? 'admin']}
+                {greeting} — {ROLE_LABELS[currentUser?.role ?? 'admin']}
               </p>
               <h1 className="text-xl font-display font-bold text-white leading-tight">
                 {currentUser?.displayName}
@@ -454,7 +466,7 @@ export default function DashboardPage() {
             <div className="rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2"
               style={{ background: 'rgba(0,0,0,0.2)' }}>
               <span className="text-xs font-semibold uppercase tracking-widest shrink-0" style={{ color: '#edd5c8' }}>
-                Воронка
+                {t.pipeline}
               </span>
               {PIPELINE_STATUSES.map(({ key, label, color, desc }, idx) => {
                 const cnt = stats.pipeline[key] ?? 0;
@@ -498,10 +510,10 @@ export default function DashboardPage() {
               <Activity className="w-3.5 h-3.5 text-white" />
             </div>
             <p className="font-bold text-sm" style={{ color: '#59301f' }}>
-              Требуют вашего действия — {stats.myAction.length} заявк{stats.myAction.length === 1 ? 'а' : stats.myAction.length < 5 ? 'и' : ''}
+              {t.actions_required} — {stats.myAction.length}
             </p>
             <Link to="/requests" className="ml-auto text-xs font-semibold flex items-center gap-1 hover:underline" style={{ color: '#a67161' }}>
-              Все <ArrowRight className="w-3 h-3" />
+              {t.filter_all} <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
           <div className="divide-y divide-[#f7ede7]">
@@ -543,11 +555,11 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-3xl font-black" style={{ color: '#59301f' }}>{loading ? '—' : stats.total}</p>
-            <p className="text-sm text-gray-500 leading-tight">Всего заявок</p>
+            <p className="text-sm text-gray-500 leading-tight">{t.total_requests}</p>
           </div>
           <div className="space-y-1">
             <StatusBar active={stats.active.length} done={stats.done.length} rejected={stats.rejected.length} />
-            <p className="text-xs" style={{ color: '#a67161' }}>{stats.completionPct}% завершено</p>
+            <p className="text-xs" style={{ color: '#a67161' }}>{stats.completionPct}{t.per_cent_done}</p>
           </div>
         </div>
 
@@ -557,12 +569,12 @@ export default function DashboardPage() {
               <Clock className="w-5 h-5 text-orange-500" />
             </div>
             {stats.overdue.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold">{stats.overdue.length} просроч.</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold">{stats.overdue.length} {t.overdue_short}</span>
             )}
           </div>
           <div>
             <p className="text-3xl font-black" style={{ color: '#59301f' }}>{loading ? '—' : stats.active.length}</p>
-            <p className="text-sm text-gray-500 leading-tight">В работе</p>
+            <p className="text-sm text-gray-500 leading-tight">{t.in_work}</p>
           </div>
           <div className="text-xs space-y-0.5" style={{ color: '#a67161' }}>
             <p>{stats.rejected.length} отклонено · {stats.done.length} выдано</p>
@@ -588,9 +600,9 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-3xl font-black" style={{ color: '#59301f' }}>{loading ? '—' : stats.doneThisMonth.length}</p>
-            <p className="text-sm text-gray-500 leading-tight">Выдано в этом месяце</p>
+            <p className="text-sm text-gray-500 leading-tight">{t.issued_this_month}</p>
           </div>
-          <p className="text-xs" style={{ color: '#a67161' }}>Всего выдано: {stats.done.length}</p>
+          <p className="text-xs" style={{ color: '#a67161' }}>{t.total_issued}: {stats.done.length}</p>
         </div>
 
         <div className={`rounded-2xl border-2 p-5 flex flex-col gap-3 ${stats.urgent.length > 0 ? 'bg-red-50' : 'bg-white'}`}
@@ -605,7 +617,7 @@ export default function DashboardPage() {
           {stats.urgent.length > 0 ? (
             <div>
               <p className="text-3xl font-black text-red-600">{stats.urgent.length}</p>
-              <p className="text-sm text-red-500 leading-tight font-semibold">Срочных заявок</p>
+              <p className="text-sm text-red-500 leading-tight font-semibold">{t.urgent_requests}</p>
               <p className="text-xs text-red-400 mt-1">Требуют немедленной обработки</p>
             </div>
           ) : (
@@ -613,7 +625,7 @@ export default function DashboardPage() {
               <p className="text-3xl font-black" style={{ color: '#59301f' }}>
                 {loading || stats.totalCostActive === 0 ? '—' : formatCurrency(stats.totalCostActive)}
               </p>
-              <p className="text-sm text-gray-500 leading-tight">Сумма активных заявок</p>
+              <p className="text-sm text-gray-500 leading-tight">{t.active_cost_label}</p>
               {stats.totalCostDone > 0 && (
                 <p className="text-xs mt-1" style={{ color: '#a67161' }}>Выдано на {formatCurrency(stats.totalCostDone)} сум</p>
               )}
@@ -636,13 +648,13 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4" style={{ color: '#c89587' }} />
               <h2 className="font-bold" style={{ color: '#59301f' }}>
-                {currentUser?.role === 'prоrab' ? 'Мои заявки' : 'Последние заявки'}
+                {currentUser?.role === 'prоrab' ? t.filter_my : t.recent_requests}
               </h2>
             </div>
             <Link to="/requests"
               className="text-xs font-semibold flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-[#f7ede7] transition-colors"
               style={{ color: '#a67161' }}>
-              Все заявки <ArrowRight className="w-3 h-3" />
+              {t.all_requests} <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
 
@@ -651,12 +663,12 @@ export default function DashboardPage() {
           ) : requests.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <Package className="w-12 h-12 mx-auto mb-3 opacity-20" />
-              <p className="text-sm font-medium">Заявок ещё нет</p>
+              <p className="text-sm font-medium">{t.no_requests_yet}</p>
               {(currentUser?.role === 'prоrab' || currentUser?.role === 'admin') && (
                 <Link to="/requests/new"
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
                   style={{ background: '#c89587' }}>
-                  <Plus className="w-4 h-4" /> Создать первую
+                  <Plus className="w-4 h-4" /> {t.create_first}
                 </Link>
               )}
             </div>
@@ -713,7 +725,7 @@ export default function DashboardPage() {
             <div className="bg-white rounded-2xl border-2 p-5" style={{ borderColor: '#edd5c8' }}>
               <div className="flex items-center gap-2 mb-4">
                 <Layers className="w-4 h-4" style={{ color: '#c89587' }} />
-                <h2 className="font-bold text-sm" style={{ color: '#59301f' }}>По типам</h2>
+                <h2 className="font-bold text-sm" style={{ color: '#59301f' }}>{t.by_type}</h2>
               </div>
               <div className="space-y-2.5">
                 {(['materials','tools','equipment','services','other'] as const).map(type => {
@@ -728,7 +740,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-xs text-gray-600 truncate">{REQUEST_TYPE_LABELS[type]}</span>
+                          <span className="text-xs text-gray-600 truncate">{TYPE_LABELS[type]}</span>
                           <span className="text-xs font-bold ml-2 shrink-0" style={{ color: '#59301f' }}>{cnt}</span>
                         </div>
                         <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">

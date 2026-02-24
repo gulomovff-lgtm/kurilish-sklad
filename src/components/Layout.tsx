@@ -189,16 +189,24 @@ export default function Layout({ children }: { children: ReactNode }) {
           <button
             onClick={toggleLang}
             title={lang === 'ru' ? "O'zbekcha" : 'Русский'}
-            className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 w-full transition-all ${
+            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 w-full transition-all ${
               isIcon ? 'justify-center' : ''
             }`}
             style={{ background: '#3d1c0e', color: '#e8cfc5' }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#5c2e1a'; }}
             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#3d1c0e'; }}
           >
-            <span className="text-base leading-none">{lang === 'ru' ? '🇺🇿' : '🇷🇺'}</span>
+            <span
+              className="inline-flex items-center justify-center rounded font-extrabold shrink-0"
+              style={{
+                width: '1.75rem', height: '1.25rem', fontSize: '0.6rem', letterSpacing: '0.05em',
+                background: lang === 'ru' ? '#1b6b3a' : '#c9a227', color: '#fff',
+              }}
+            >
+              {lang === 'ru' ? 'UZ' : 'RU'}
+            </span>
             {!isIcon && (
-              <span className="text-[11px] font-semibold">
+              <span className="text-[11px] font-semibold leading-none">
                 {lang === 'ru' ? "O'zbekcha" : 'Русский'}
               </span>
             )}

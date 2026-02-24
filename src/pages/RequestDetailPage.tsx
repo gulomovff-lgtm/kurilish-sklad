@@ -721,7 +721,7 @@ function ChainTimeline({ request }: { request: SkladRequest }) {
   const history = request.history ?? [];
   const now = new Date();
   const isRejected = request.status === 'otkloneno';
-  const isDone = request.status === 'vydano';
+  const isDone = request.status === 'polucheno';
   const progress = getStatusProgress(request.status);
   const { canViewFinancial } = usePermission();
 
@@ -732,11 +732,12 @@ function ChainTimeline({ request }: { request: SkladRequest }) {
     finansist_review: 48,
     snab_process:     72,
     zakupleno:        24,
+    v_puti:           48,
   };
 
   const STATUS_ORDER: RequestStatus[] = [
     'novaya','sklad_review','sklad_partial','nachalnik_review','nachalnik_approved',
-    'finansist_review','finansist_approved','snab_process','zakupleno','vydano',
+    'finansist_review','finansist_approved','snab_process','zakupleno','v_puti','vydano','polucheno',
   ];
 
   const currentIdx = STATUS_ORDER.indexOf(request.status);

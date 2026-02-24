@@ -86,7 +86,7 @@ function formatK(n: number): string {
 // ─── ChainTimeline ─────────────────────────────────────────────────────────────
 function ChainTimeline({ req }: { req: SkladRequest }) {
   const steps = getChainSteps(req.chain ?? 'full');
-  const isDone = req.status === 'vydano';
+  const isDone = req.status === 'vydano' || req.status === 'polucheno';
   const isRejected = req.status === 'otkloneno';
 
   // Build map: status → arrival ISO from history
